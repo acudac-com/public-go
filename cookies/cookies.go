@@ -11,12 +11,13 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"net/http"
+	"strings"
 )
 
 // Read the gob encoded cookie (if any) for the specified path.
 func Read[T any](path string, r *http.Request, s T) T {
 	// read cookie
-	cookie, err := r.Cookie(path)
+	cookie, err := r.Cookie(cookieName("state", path))
 	if err != nil {
 		return s
 	}
@@ -35,12 +36,13 @@ func Read[T any](path string, r *http.Request, s T) T {
 // Only decodes the cookie if the hash is what is expected.
 func ReadSigned[T any](path string, r *http.Request, s T, key []byte) T {
 	// read cookies
-	cookie, err := r.Cookie(path)
+	cookie, err := r.Cookie(cookieName("state", path))
 	if err != nil {
 		return s
 	}
-	hashCookie, err := r.Cookie("hash-" + path)
-	if err == nil {
+	hashCookie, err := r.Cookie(cookieName("hash", path))
+	if err != nil {
+		println("no hash")
 		return s
 	}
 
@@ -73,7 +75,7 @@ func hash(content []byte, key []byte) (string, error) {
 }
 
 // Write the gob encoded cookie and its hmac hash for the specified path
-func WriteSigned(path string, w http.ResponseWriter, state any) {
+func WriteSigned(path string, w http.ResponseWriter, state any, key []byte) {
 	// encode
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(state); err != nil {
@@ -84,18 +86,23 @@ func WriteSigned(path string, w http.ResponseWriter, state any) {
 
 	// write cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:  path,
+		Name:  cookieName("state", path),
 		Value: encoded,
 		Path:  path,
 	})
 
 	// write hash
-	hash, _ := hash(buf.Bytes(), []byte(path))
+	hash, _ := hash(buf.Bytes(), key)
 	http.SetCookie(w, &http.Cookie{
-		Name:  "hash-" + path,
+		Name:  cookieName("hash", path),
 		Value: hash,
 		Path:  path,
 	})
+}
+func cookieName(prefix string, path string) string {
+	name := prefix + strings.ReplaceAll(path, "/", "-")
+	name = strings.TrimSuffix(name, "-")
+	return name
 }
 
 // Write the gob encoded cookie for the specified path.
@@ -110,7 +117,7 @@ func Write(path string, w http.ResponseWriter, state any) {
 
 	// write cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:  path,
+		Name:  cookieName("state", path),
 		Value: encoded,
 		Path:  path,
 	})
