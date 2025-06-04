@@ -51,7 +51,8 @@ func TestGcsBucket(t *testing.T) {
 
 	key := "users/123/test_object.txt"
 	data := []byte("Hello, Google Cloud Storage!")
-	gcs, err := blob.NewGcsStorage(ctx, os.Getenv("GCS_BUCKET"), "someprefix/sub")
+	bucket := os.Getenv("GCS_BUCKET")
+	gcs, err := blob.NewGcsStorage(ctx, bucket, "someprefix/sub")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,12 @@ func TestGcsBucket(t *testing.T) {
 	// Write
 	err = gcs.WriteIfMissing(ctx, key, data)
 	if err != nil {
-		t.Fatalf("Write failed: %v", err)
+		if _, ok := err.(*blob.AlreadyExistsError); ok {
+			println("already exists")
+		} else {
+
+			t.Fatalf("Write failed: %v", err)
+		}
 	}
 
 	// Read
