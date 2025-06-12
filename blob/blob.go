@@ -41,6 +41,14 @@ func (e *AlreadyExistsError) Error() string {
 	return f("blob already exists: %s", e.key)
 }
 
+type NotFoundError struct {
+	key string
+}
+
+func (e *NotFoundError) Error() string {
+	return f("blob not found: %s", e.key)
+}
+
 // Implements the Storage interface for the local file system.
 type Fs struct {
 	basePath string // Base path where blobs will be stored.
@@ -56,7 +64,14 @@ func NewFsStorage(basePath string) *Fs {
 // Reads a blob from the local file system.
 func (l *Fs) Read(ctx context.Context, key string) ([]byte, error) {
 	path := filepath.Join(l.basePath, key)
-	return os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, &NotFoundError{key}
+		}
+		return nil, e("reading file: %w", err)
+	}
+	return data, nil
 }
 
 // Writes a blob to the local file system.
@@ -98,14 +113,22 @@ func (l *Fs) WriteIfMissing(ctx context.Context, key string, data []byte) error 
 // Removes a blob from the local file system.
 func (l *Fs) Remove(ctx context.Context, key string) error {
 	path := filepath.Join(l.basePath, key)
-	return os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return &NotFoundError{key}
+		}
+		return e("removing file: %w", err)
+	}
+	return nil
 }
 
 // Removes a folder
 func (l *Fs) RemoveFolder(ctx context.Context, folder string) error {
 	path := filepath.Join(l.basePath, folder)
-	err := os.RemoveAll(path)
-	if err != nil {
+	if err := os.RemoveAll(path); err != nil {
+		if os.IsNotExist(err) {
+			return &NotFoundError{folder}
+		}
 		return e("removing folder: %w", err)
 	}
 	return nil
@@ -116,6 +139,9 @@ func (l *Fs) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
 	path := filepath.Join(l.basePath, key)
 	file, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, &NotFoundError{key}
+		}
 		return nil, e("opening file: %w", err)
 	}
 	return file, nil
@@ -155,11 +181,22 @@ func (g *Gcs) Read(ctx context.Context, key string) ([]byte, error) {
 	key = path.Join(g.prefix, key)
 	rc, err := g.bucket.Object(key).NewReader(ctx)
 	if err != nil {
+		if err.Error() == "storage: object doesn't exist" {
+			return nil, &NotFoundError{key}
+		}
+		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
+			return nil, &NotFoundError{key}
+		}
 		return nil, e("creating reader: %w", err)
 	}
 	defer rc.Close()
-
-	return io.ReadAll(rc)
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
+			return nil, &NotFoundError{key}
+		}
+	}
+	return data, nil
 }
 
 // Writes a blob to Google Cloud Storage.
@@ -199,6 +236,9 @@ func (g *Gcs) Remove(ctx context.Context, key string) error {
 	key = path.Join(g.prefix, key)
 	err := g.bucket.Object(key).Delete(ctx)
 	if err != nil {
+		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
+			return &NotFoundError{key}
+		}
 		return e("deleting object: %w", err)
 	}
 	return nil
@@ -220,6 +260,9 @@ func (g *Gcs) RemoveFolder(ctx context.Context, folder string) error {
 		errG.Go(func() error {
 			err = g.bucket.Object(objAttrs.Name).Delete(ctx)
 			if err != nil {
+				if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
+					return nil // Object already deleted
+				}
 				return e("deleting object: %w", err)
 			}
 			return nil
@@ -257,5 +300,7 @@ var (
 	_ Storage = &Gcs{}
 )
 
-var f = fmt.Sprintf
-var e = fmt.Errorf
+var (
+	f = fmt.Sprintf
+	e = fmt.Errorf
+)
