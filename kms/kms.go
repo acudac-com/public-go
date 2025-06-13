@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/acudac-com/public-go/b64"
 	"github.com/acudac-com/public-go/blob"
 	"github.com/acudac-com/public-go/cx"
 )
@@ -163,6 +164,16 @@ func Encrypt(ctx context.Context, data []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
+// Use AES-GCM encryption to encrypt data with key used for encryption added as first bytes.
+// Returns base64 url encoding of encrypted data.
+func EncryptB64(ctx context.Context, data []byte) ([]byte, error) {
+	encr, err := Encrypt(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	return b64.UrlEncode(encr), nil
+}
+
 // Use AES-GCM decryption to decrypt data with key used for encryption extracted from the first bytes.
 func Decrypt(ctx context.Context, data []byte) ([]byte, error) {
 	keyId := string(data[:keyLength])
@@ -188,6 +199,15 @@ func Decrypt(ctx context.Context, data []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// Use AES-GCM decryption to decrypt base64 url encoded data with key used for encryption extracted from the first bytes.
+func DecryptB64(ctx context.Context, data []byte) ([]byte, error) {
+	dec, err := b64.UrlDecode(data)
+	if err != nil {
+		return nil, err
+	}
+	return Decrypt(ctx, dec)
+}
+
 func hashKey(ctx context.Context, keyId *string) ([]byte, error) {
 	key, err := key(ctx, keyId, false)
 	if err != nil {
@@ -211,6 +231,15 @@ func Hash(ctx context.Context, data []byte) ([]byte, error) {
 	return result, nil
 }
 
+// Prepends key id and SHA512 HMAC to data to sign it. Returns base64 url encoding of final hashed data.
+func HashB64(ctx context.Context, data []byte) ([]byte, error) {
+	hashed, err := Hash(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	return b64.UrlEncode(hashed), nil
+}
+
 // Verifies the HMAC SHA512 signature of the data and returns original payload.
 func Unhash(ctx context.Context, data []byte) ([]byte, error) {
 	keyId := string(data[:keyLength])
@@ -230,4 +259,13 @@ func Unhash(ctx context.Context, data []byte) ([]byte, error) {
 		return nil, e("invalid HMAC signature for key id %s", keyId)
 	}
 	return payload, nil
+}
+
+// Verifies the HMAC SHA512 signature of the base64 url encoded data and returns original payload.
+func UnhashB64(ctx context.Context, data []byte) ([]byte, error) {
+	dec, err := b64.UrlDecode(data)
+	if err != nil {
+		return nil, err
+	}
+	return Unhash(ctx, dec)
 }
