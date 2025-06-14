@@ -1,4 +1,4 @@
-package blob
+package storage
 
 import (
 	"context"
@@ -13,6 +13,98 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 )
+
+type missingDefault struct{}
+
+func (s *missingDefault) Read(ctx context.Context, key string) ([]byte, error) {
+	return nil, fmt.Errorf("no default storage configured")
+}
+
+func (s *missingDefault) Write(ctx context.Context, key string, data []byte) error {
+	return fmt.Errorf("no default storage configured")
+}
+
+func (s *missingDefault) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+	return fmt.Errorf("no default storage configured")
+}
+
+func (s *missingDefault) Remove(ctx context.Context, key string) error {
+	return fmt.Errorf("no default storage configured")
+}
+
+func (s *missingDefault) RemoveFolder(ctx context.Context, folder string) error {
+	return fmt.Errorf("no default storage configured")
+}
+
+func (s *missingDefault) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("no default storage configured")
+}
+
+func (s *missingDefault) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
+	return nil, fmt.Errorf("no default storage configured")
+}
+
+// Default storage to use. Remember to set it before using the storage
+// functions.
+var Default Storage = &missingDefault{}
+
+// Sets the default storage to a local file system storage with the given base
+// path.
+func UseFs(basePath string) {
+	Default = NewFsStorage(basePath)
+}
+
+// Sets the default storage to a Google Cloud Storage instance with the given
+// bucket and prefix.
+func UseGcs(ctx context.Context, bucket string, prefix string) error {
+	gcs, err := NewGcsStorage(ctx, bucket, prefix)
+	if err != nil {
+		return fmt.Errorf("initializing GCS storage: %w", err)
+	}
+	Default = gcs
+	return nil
+}
+
+// Reads a blob from the default storage.
+func Read(ctx context.Context, key string) ([]byte, error) {
+	return Default.Read(ctx, key)
+}
+
+// Writes a blob to the default storage.
+func Write(ctx context.Context, key string, data []byte) error {
+	return Default.Write(ctx, key, data)
+}
+
+// Writes a blob to the default storage if the key does not contain any data
+// yet.
+func WriteIfMissing(ctx context.Context, key string, data []byte) error {
+	return Default.WriteIfMissing(ctx, key, data)
+}
+
+// Removes a blob from the default storage.
+func Remove(ctx context.Context, key string) error {
+	return Default.Remove(ctx, key)
+}
+
+// Removes a folder and all children blobs from the default storage.
+func RemoveFolder(ctx context.Context, folder string) error {
+	return Default.RemoveFolder(ctx, folder)
+}
+
+// Returns an io readerCloser for the blob at the given key in the default
+// storage.
+func Reader(ctx context.Context, key string) (io.ReadCloser, error) {
+	return Default.Reader(ctx, key)
+}
+
+// Returns an io writerCloser for the blob at the given key in the default
+// storage.
+func Writer(ctx context.Context, key string) (io.WriteCloser, error) {
+	if Default == nil {
+		return nil, fmt.Errorf("no default storage configured")
+	}
+	return Default.Writer(ctx, key)
+}
 
 // A simplified interface for interacting with blob storage.
 type Storage interface {

@@ -1,4 +1,4 @@
-package blob_test
+package storage_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/acudac-com/public-go/blob"
+	"github.com/acudac-com/public-go/storage"
 )
 
 func TestLocalFiles(t *testing.T) {
@@ -15,7 +15,7 @@ func TestLocalFiles(t *testing.T) {
 	basePath := "test_local_files"
 	defer os.RemoveAll(basePath) // Clean up after the test
 
-	localFS := blob.NewFsStorage(basePath)
+	localFS := storage.NewFsStorage(basePath)
 	key := "users/123/test_file.txt"
 	data := []byte("Hello, Local Files!")
 
@@ -52,7 +52,7 @@ func TestGcsBucket(t *testing.T) {
 	key := "users/123/test_object.txt"
 	data := []byte("Hello, Google Cloud Storage!")
 	bucket := os.Getenv("GCS_BUCKET")
-	gcs, err := blob.NewGcsStorage(ctx, bucket, "someprefix/sub")
+	gcs, err := storage.NewGcsStorage(ctx, bucket, "someprefix/sub")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +60,9 @@ func TestGcsBucket(t *testing.T) {
 	// Write
 	err = gcs.WriteIfMissing(ctx, key, data)
 	if err != nil {
-		if _, ok := err.(*blob.AlreadyExistsError); ok {
+		if _, ok := err.(*storage.AlreadyExistsError); ok {
 			println("already exists")
 		} else {
-
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
@@ -91,7 +90,7 @@ func TestGcsBucket(t *testing.T) {
 
 func TestGcsBucket_RemoveFolder(t *testing.T) {
 	ctx := context.Background()
-	gcs, err := blob.NewGcsStorage(ctx, os.Getenv("GCS_BUCKET"), "someprefix/sub")
+	gcs, err := storage.NewGcsStorage(ctx, os.Getenv("GCS_BUCKET"), "someprefix/sub")
 	if err != nil {
 		t.Fatal(err)
 	}
