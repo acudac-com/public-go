@@ -1,124 +1,129 @@
 // Package cookies provides utilities for encoding and decoding Go values into
-// HTTP cookies using gob serialization and base64 encoding.
+// HTTP cookies using base64, json, SHA512 hashing and AES-GCM encryption. Each
+// path must only have one plain, one hashed and one encrypted cookie. It does
+// not need all or any, but not more than one of the same serialization type.
 //
 // This allows type-safe storage of complex state in cookies.
 package cookies
 
 import (
-	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/gob"
+	"context"
 	"net/http"
-	"strings"
+
+	"github.com/acudac-com/public-go/b64"
+	"github.com/acudac-com/public-go/jsonx"
+	"go.alis.build/alog"
 )
 
-// Read the gob encoded cookie (if any) for the specified path.
-func Read[T any](path string, r *http.Request, s T) T {
-	// read cookie
-	cookie, err := r.Cookie(cookieName("state", path))
+var (
+	// Edit this on init to your prefered same site settings. Default is lax mode.
+	SameSite = http.SameSiteLaxMode
+	// Edit this on init to your prefered same site settings. Default is true.
+	Secure = true
+	// The max age of cookies, default is 400 days.
+	MaxAge = 400 * 24 * 60 * 60
+	// Whether cookies are http only, which is the default.
+	HttpOnly = true
+)
+
+// Write the unencrypted, unhashed, base64 json marshalled cookie for the
+// specified path.
+func WritePlain(ctx context.Context, path string, w http.ResponseWriter, v any) {
+	value, err := jsonx.MarshalB64(ctx, v)
 	if err != nil {
-		return s
-	}
-
-	// decode
-	gobEncoding, err := base64.StdEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		return s
-	}
-	dec := gob.NewDecoder(bytes.NewReader(gobEncoding))
-	_ = dec.Decode(s)
-	return s
-}
-
-// Read the gob encoded cookie (if any) for the specified path.
-// Only decodes the cookie if the hash is what is expected.
-func ReadSigned[T any](path string, r *http.Request, s T, key []byte) T {
-	// read cookies
-	cookie, err := r.Cookie(cookieName("state", path))
-	if err != nil {
-		return s
-	}
-	hashCookie, err := r.Cookie(cookieName("hash", path))
-	if err != nil {
-		println("no hash")
-		return s
-	}
-
-	// decode base64
-	gobEncoding, err := base64.StdEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		return s
-	}
-
-	// ensure hash is what is expected
-	expectedHash, _ := hash(gobEncoding, key)
-	if expectedHash != hashCookie.Value {
-		return s
-	}
-
-	// decode gob
-	dec := gob.NewDecoder(bytes.NewReader(gobEncoding))
-	_ = dec.Decode(s)
-	return s
-}
-
-// Returns base64 encoded hmac hash of content
-func hash(content []byte, key []byte) (string, error) {
-	mac := hmac.New(sha256.New, key)
-	if _, err := mac.Write(content); err != nil {
-		return "", err
-	}
-	hashBytes := mac.Sum(nil)
-	return base64.StdEncoding.EncodeToString(hashBytes), nil
-}
-
-// Write the gob encoded cookie and its hmac hash for the specified path
-func WriteSigned(path string, w http.ResponseWriter, state any, key []byte) {
-	// encode
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(state); err != nil {
-		println(err.Error())
+		alog.Warnf(ctx, "marshalling %s cookie: %v", path, err)
 		return
 	}
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	// write cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:  cookieName("state", path),
-		Value: encoded,
-		Path:  path,
-	})
-
-	// write hash
-	hash, _ := hash(buf.Bytes(), key)
-	http.SetCookie(w, &http.Cookie{
-		Name:  cookieName("hash", path),
-		Value: hash,
-		Path:  path,
-	})
-}
-func cookieName(prefix string, path string) string {
-	name := prefix + strings.ReplaceAll(path, "/", "-")
-	name = strings.TrimSuffix(name, "-")
-	return name
+	name := name("plain", path)
+	setCookie(w, name, string(value), path)
 }
 
-// Write the gob encoded cookie for the specified path.
-func Write(path string, w http.ResponseWriter, state any) {
-	// encode
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(state); err != nil {
-		println(err.Error())
+// Read the uncrypted, unhashed, base64 json marshalled cookie (if any) for the
+// specified path.
+func ReadPlain[T any](ctx context.Context, path string, r *http.Request, v T) T {
+	name := name("plain", path)
+	cookie, err := r.Cookie(name)
+	if err != nil {
+		alog.Warnf(ctx, "reading %s cookie: %v", path, err)
+		return v
+	}
+
+	if _, err := jsonx.UnmarshalB64(ctx, []byte(cookie.Value), v); err != nil {
+		alog.Warnf(ctx, "unmarshalling %s cookie: %v", path, err)
+	}
+	return v
+}
+
+// Write the unencrypted, unhashed, base64 json marshalled cookie for the
+// specified path.
+func WriteHashed(ctx context.Context, path string, w http.ResponseWriter, v any) {
+	value, err := jsonx.HashB64(ctx, v)
+	if err != nil {
+		alog.Warnf(ctx, "hashing %s cookie: %v", path, err)
 		return
 	}
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+	name := name("hashed", path)
+	setCookie(w, name, string(value), path)
+}
 
-	// write cookie
+// Read the uncrypted, unhashed, base64 json marshalled cookie (if any) for the
+// specified path.
+func ReadHashed[T any](ctx context.Context, path string, r *http.Request, v T) T {
+	name := name("hashed", path)
+	cookie, err := r.Cookie(name)
+	if err != nil {
+		alog.Warnf(ctx, "reading %s cookie: %v", path, err)
+		return v
+	}
+
+	if _, err := jsonx.UnhashB64(ctx, []byte(cookie.Value), v); err != nil {
+		alog.Warnf(ctx, "unhashing %s cookie: %v", path, err)
+	}
+	return v
+}
+
+// Write the unencrypted, unhashed, base64 json marshalled cookie for the
+// specified path.
+func WriteEncrypted(ctx context.Context, path string, w http.ResponseWriter, v any) {
+	value, err := jsonx.EncryptB64(ctx, v)
+	if err != nil {
+		alog.Warnf(ctx, "encrypting %s encrypted cookie: %v", path, err)
+		return
+	}
+	name := name("encrypted", path)
+	setCookie(w, name, string(value), path)
+}
+
+// Read the uncrypted, unhashed, base64 json marshalled cookie (if any) for the
+// specified path.
+func ReadEncrypted[T any](ctx context.Context, path string, r *http.Request, v T) T {
+	name := name("encrypted", path)
+	cookie, err := r.Cookie(name)
+	if err != nil {
+		alog.Warnf(ctx, "reading %s cookie: %v", path, err)
+		return v
+	}
+
+	if _, err := jsonx.DecryptB64(ctx, []byte(cookie.Value), v); err != nil {
+		alog.Warnf(ctx, "decrypting %s cookie: %v", path, err)
+	}
+	return v
+}
+
+// Returns the name of the cookie at the specified path.
+func name(prefix string, path string) string {
+	return prefix + "_" + string(b64.UrlEncode([]byte(path)))
+}
+
+func setCookie(w http.ResponseWriter, name, value, path string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:  cookieName("state", path),
-		Value: encoded,
-		Path:  path,
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		HttpOnly: HttpOnly,
+		SameSite: SameSite,
+		Secure:   Secure,
+		MaxAge:   MaxAge, // 400 days
 	})
 }
