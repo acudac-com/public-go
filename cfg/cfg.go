@@ -44,7 +44,7 @@ func Load[T any](config T) T {
 	key := key(Version, Variation)
 	reader, err := storage.Reader(ctx, key)
 	if err != nil {
-		alog.Fatalf(ctx, "creating config reader: %v")
+		alog.Fatalf(ctx, "creating config reader: %v", err)
 	}
 	if err := json.NewDecoder(reader).Decode(config); err != nil {
 		alog.Fatalf(ctx, "decoding config: %v", err)
