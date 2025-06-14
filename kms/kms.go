@@ -208,8 +208,8 @@ func DecryptB64(ctx context.Context, data []byte) ([]byte, error) {
 	return Decrypt(ctx, dec)
 }
 
-func hashKey(ctx context.Context, keyId *string) ([]byte, error) {
-	key, err := key(ctx, keyId, false)
+func hashKey(ctx context.Context, keyId *string, createIfMissing bool) ([]byte, error) {
+	key, err := key(ctx, keyId, createIfMissing)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func hashKey(ctx context.Context, keyId *string) ([]byte, error) {
 // Prepends key id and SHA512 HMAC to data to sign it.
 func Hash(ctx context.Context, data []byte) ([]byte, error) {
 	keyId := keyId(ctx)
-	key, err := hashKey(ctx, keyId)
+	key, err := hashKey(ctx, keyId, true)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func Unhash(ctx context.Context, data []byte) ([]byte, error) {
 	macBytes := data[macStart:macEnd]
 	payload := data[macEnd:]
 
-	key, err := hashKey(ctx, &keyId)
+	key, err := hashKey(ctx, &keyId, false)
 	if err != nil {
 		return nil, err
 	}
