@@ -9,8 +9,8 @@ package cookies
 import (
 	"context"
 	"net/http"
+	"strings"
 
-	"github.com/acudac-com/public-go/b64"
 	"github.com/acudac-com/public-go/jsonx"
 	"go.alis.build/alog"
 )
@@ -31,12 +31,11 @@ var (
 func WritePlain(ctx context.Context, path string, w http.ResponseWriter, v any) {
 	value, err := jsonx.MarshalB64(ctx, v)
 	if err != nil {
-		alog.Warnf(ctx, "marshalling %s cookie: %v", path, err)
 		return
 	}
 
 	name := name("plain", path)
-	setCookie(w, name, string(value), path)
+	setCookie(ctx, w, name, string(value), path)
 }
 
 // Read the uncrypted, unhashed, base64 json marshalled cookie (if any) for the
@@ -45,13 +44,9 @@ func ReadPlain[T any](ctx context.Context, path string, r *http.Request, v T) T 
 	name := name("plain", path)
 	cookie, err := r.Cookie(name)
 	if err != nil {
-		alog.Warnf(ctx, "reading %s cookie: %v", path, err)
 		return v
 	}
-
-	if _, err := jsonx.UnmarshalB64(ctx, []byte(cookie.Value), v); err != nil {
-		alog.Warnf(ctx, "unmarshalling %s cookie: %v", path, err)
-	}
+	jsonx.UnmarshalB64(ctx, []byte(cookie.Value), v)
 	return v
 }
 
@@ -60,11 +55,10 @@ func ReadPlain[T any](ctx context.Context, path string, r *http.Request, v T) T 
 func WriteHashed(ctx context.Context, path string, w http.ResponseWriter, v any) {
 	value, err := jsonx.HashB64(ctx, v)
 	if err != nil {
-		alog.Warnf(ctx, "hashing %s cookie: %v", path, err)
 		return
 	}
 	name := name("hashed", path)
-	setCookie(w, name, string(value), path)
+	setCookie(ctx, w, name, string(value), path)
 }
 
 // Read the uncrypted, unhashed, base64 json marshalled cookie (if any) for the
@@ -73,13 +67,9 @@ func ReadHashed[T any](ctx context.Context, path string, r *http.Request, v T) T
 	name := name("hashed", path)
 	cookie, err := r.Cookie(name)
 	if err != nil {
-		alog.Warnf(ctx, "reading %s cookie: %v", path, err)
 		return v
 	}
-
-	if _, err := jsonx.UnhashB64(ctx, []byte(cookie.Value), v); err != nil {
-		alog.Warnf(ctx, "unhashing %s cookie: %v", path, err)
-	}
+	jsonx.UnhashB64(ctx, []byte(cookie.Value), v)
 	return v
 }
 
@@ -88,11 +78,10 @@ func ReadHashed[T any](ctx context.Context, path string, r *http.Request, v T) T
 func WriteEncrypted(ctx context.Context, path string, w http.ResponseWriter, v any) {
 	value, err := jsonx.EncryptB64(ctx, v)
 	if err != nil {
-		alog.Warnf(ctx, "encrypting %s encrypted cookie: %v", path, err)
 		return
 	}
 	name := name("encrypted", path)
-	setCookie(w, name, string(value), path)
+	setCookie(ctx, w, name, string(value), path)
 }
 
 // Read the uncrypted, unhashed, base64 json marshalled cookie (if any) for the
@@ -101,23 +90,21 @@ func ReadEncrypted[T any](ctx context.Context, path string, r *http.Request, v T
 	name := name("encrypted", path)
 	cookie, err := r.Cookie(name)
 	if err != nil {
-		alog.Warnf(ctx, "reading %s cookie: %v", path, err)
 		return v
 	}
 
-	if _, err := jsonx.DecryptB64(ctx, []byte(cookie.Value), v); err != nil {
-		alog.Warnf(ctx, "decrypting %s cookie: %v", path, err)
-	}
+	jsonx.DecryptB64(ctx, []byte(cookie.Value), v)
 	return v
 }
 
 // Returns the name of the cookie at the specified path.
 func name(prefix string, path string) string {
-	return prefix + "_" + string(b64.UrlEncode([]byte(path)))
+	name := prefix + strings.ReplaceAll(path, "/", "_")
+	return strings.TrimSuffix(name, "_")
 }
 
-func setCookie(w http.ResponseWriter, name, value, path string) {
-	http.SetCookie(w, &http.Cookie{
+func setCookie(ctx context.Context, w http.ResponseWriter, name, value, path string) {
+	cookie := &http.Cookie{
 		Name:     name,
 		Value:    value,
 		Path:     path,
@@ -125,5 +112,12 @@ func setCookie(w http.ResponseWriter, name, value, path string) {
 		SameSite: SameSite,
 		Secure:   Secure,
 		MaxAge:   MaxAge, // 400 days
-	})
+	}
+	if err := cookie.Valid(); err != nil {
+		alog.Errorf(ctx, "invalid cookie: %v", err)
+		return
+	}
+	alog.Debugf(ctx, "setting cookie: %v", cookie)
+	println("done with cookie")
+	http.SetCookie(w, cookie)
 }
