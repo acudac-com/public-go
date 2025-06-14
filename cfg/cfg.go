@@ -1,13 +1,29 @@
-package config
+package cfg
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/acudac-com/public-go/env"
 	"github.com/acudac-com/public-go/storage"
+	"go.alis.build/alog"
 )
+
+var (
+	Variation = os.Getenv("CONFIG_VARIATION")
+	Version   = os.Getenv("CONFIG_VERSION")
+)
+
+func init() {
+	ctx := context.Background()
+	if Version == "" {
+		alog.Warnf(ctx, "no config version specified yet in %s environment so loaded config will be empty", env.Env)
+		return
+	}
+}
 
 // Returns the blob key of the specified version and variation's config.
 func key(version string, variation string) string {
@@ -19,17 +35,21 @@ func key(version string, variation string) string {
 }
 
 // Reads the json encoded config for the given version and variation from blob storage.
-func Read[T any](version, variation string, config T) (T, error) {
+func Load[T any](config T) T {
+	if Version == "" {
+		return config
+	}
+
 	ctx := context.Background()
-	key := key(version, variation)
+	key := key(Version, Variation)
 	reader, err := storage.Reader(ctx, key)
 	if err != nil {
-		return config, e("creating config reader: %w", err)
+		alog.Fatalf(ctx, "creating config reader: %v")
 	}
 	if err := json.NewDecoder(reader).Decode(config); err != nil {
-		return config, e("decoding config: %w", err)
+		alog.Fatalf(ctx, "decoding config: %v", err)
 	}
-	return config, nil
+	return config
 }
 
 // Encodes and writes the given config and its optional variations to blob

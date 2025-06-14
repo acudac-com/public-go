@@ -58,6 +58,15 @@ func Tx(ctx context.Context, db *sql.DB) (*Cx, *sqlTx, error) {
 	return cx, tx, err
 }
 
+func (cx *Cx) TxIfExists() *sqlTx {
+	return cx.tx
+}
+
+func TxIfExists(ctx context.Context) *sqlTx {
+	cx := New(ctx)
+	return cx.tx
+}
+
 func (s *sqlTx) Rollback() error {
 	if s.created {
 		s.cx.tx = nil

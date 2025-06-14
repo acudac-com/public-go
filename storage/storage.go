@@ -9,10 +9,77 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
+	"github.com/acudac-com/public-go/env"
+	"go.alis.build/alog"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 )
+
+// A simplified interface for interacting with blob storage.
+type Storage interface {
+	// Reads a blob
+	Read(ctx context.Context, key string) ([]byte, error)
+	// Writes a blob
+	Write(ctx context.Context, key string, data []byte) error
+	// Writes a blob if the key does not contain any data yet
+	WriteIfMissing(ctx context.Context, key string, data []byte) error
+	// Removes a blob if it exists
+	Remove(ctx context.Context, key string) error
+	// Removes a folder and all children blobs
+	RemoveFolder(ctx context.Context, folder string) error
+
+	// Returns an io readerCloser
+	Reader(ctx context.Context, key string) (io.ReadCloser, error)
+	// Returns an io writerCloser
+	Writer(ctx context.Context, key string) (io.WriteCloser, error)
+}
+
+// Default storage to use. Remember to set it before using the storage
+// functions.
+var Default Storage = &missingDefault{}
+
+func init() {
+	gcsDomain := os.Getenv("GCS_DOMAIN")
+	if env.IsLocal() {
+		UseFs(f(".storage"))
+	} else if gcsDomain != "" {
+		bucket := f("%s.%s.%s", env.Product, env.Env, gcsDomain)
+		UseGcs(context.Background(), bucket, "")
+	}
+}
+
+// Sets the default storage to a local file system storage with the given base
+// path.
+func UseFs(basePath string) {
+	Default = NewFsStorage(basePath)
+}
+
+// Sets the default storage to a Google Cloud Storage instance with the given
+// bucket and prefix.
+func UseGcs(ctx context.Context, bucket string, prefix string) {
+	gcs, err := NewGcsStorage(ctx, bucket, prefix)
+	if err != nil {
+		alog.Fatalf(ctx, "initializing GCS storage for %s/%s: %v", bucket, prefix, err)
+	}
+	Default = gcs
+}
+
+type AlreadyExistsError struct {
+	key string
+}
+
+func (e *AlreadyExistsError) Error() string {
+	return f("blob already exists: %s", e.key)
+}
+
+type NotFoundError struct {
+	key string
+}
+
+func (e *NotFoundError) Error() string {
+	return f("blob not found: %s", e.key)
+}
 
 type missingDefault struct{}
 
@@ -42,27 +109,6 @@ func (s *missingDefault) Reader(ctx context.Context, key string) (io.ReadCloser,
 
 func (s *missingDefault) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
 	return nil, fmt.Errorf("no default storage configured")
-}
-
-// Default storage to use. Remember to set it before using the storage
-// functions.
-var Default Storage = &missingDefault{}
-
-// Sets the default storage to a local file system storage with the given base
-// path.
-func UseFs(basePath string) {
-	Default = NewFsStorage(basePath)
-}
-
-// Sets the default storage to a Google Cloud Storage instance with the given
-// bucket and prefix.
-func UseGcs(ctx context.Context, bucket string, prefix string) error {
-	gcs, err := NewGcsStorage(ctx, bucket, prefix)
-	if err != nil {
-		return fmt.Errorf("initializing GCS storage: %w", err)
-	}
-	Default = gcs
-	return nil
 }
 
 // Reads a blob from the default storage.
@@ -104,41 +150,6 @@ func Writer(ctx context.Context, key string) (io.WriteCloser, error) {
 		return nil, fmt.Errorf("no default storage configured")
 	}
 	return Default.Writer(ctx, key)
-}
-
-// A simplified interface for interacting with blob storage.
-type Storage interface {
-	// Reads a blob
-	Read(ctx context.Context, key string) ([]byte, error)
-	// Writes a blob
-	Write(ctx context.Context, key string, data []byte) error
-	// Writes a blob if the key does not contain any data yet
-	WriteIfMissing(ctx context.Context, key string, data []byte) error
-	// Removes a blob if it exists
-	Remove(ctx context.Context, key string) error
-	// Removes a folder and all children blobs
-	RemoveFolder(ctx context.Context, folder string) error
-
-	// Returns an io readerCloser
-	Reader(ctx context.Context, key string) (io.ReadCloser, error)
-	// Returns an io writerCloser
-	Writer(ctx context.Context, key string) (io.WriteCloser, error)
-}
-
-type AlreadyExistsError struct {
-	key string
-}
-
-func (e *AlreadyExistsError) Error() string {
-	return f("blob already exists: %s", e.key)
-}
-
-type NotFoundError struct {
-	key string
-}
-
-func (e *NotFoundError) Error() string {
-	return f("blob not found: %s", e.key)
 }
 
 // Implements the Storage interface for the local file system.
