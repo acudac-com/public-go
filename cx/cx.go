@@ -9,7 +9,7 @@ import (
 type Cx struct {
 	context.Context
 	now *time.Time
-	tx  *sqlTx
+	tx  *SqlTx
 }
 
 func New(ctx context.Context) *Cx {
@@ -34,40 +34,40 @@ func Now(ctx context.Context) (*Cx, time.Time) {
 	return cx, cx.Now()
 }
 
-type sqlTx struct {
+type SqlTx struct {
 	*sql.Tx
 	created bool
 	cx      *Cx
 }
 
-func (cx *Cx) Tx(db *sql.DB) (*sqlTx, error) {
+func (cx *Cx) Tx(db *sql.DB) (*SqlTx, error) {
 	if cx.tx != nil {
-		return &sqlTx{Tx: cx.tx.Tx, cx: cx}, nil
+		return &SqlTx{Tx: cx.tx.Tx, cx: cx}, nil
 	}
 
 	tx, err := db.BeginTx(cx.Context, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &sqlTx{Tx: tx, cx: cx, created: true}, nil
+	return &SqlTx{Tx: tx, cx: cx, created: true}, nil
 }
 
-func Tx(ctx context.Context, db *sql.DB) (*Cx, *sqlTx, error) {
+func Tx(ctx context.Context, db *sql.DB) (*Cx, *SqlTx, error) {
 	cx := New(ctx)
 	tx, err := cx.Tx(db)
 	return cx, tx, err
 }
 
-func (cx *Cx) TxIfExists() *sqlTx {
+func (cx *Cx) TxIfExists() *SqlTx {
 	return cx.tx
 }
 
-func TxIfExists(ctx context.Context) *sqlTx {
+func TxIfExists(ctx context.Context) *SqlTx {
 	cx := New(ctx)
 	return cx.tx
 }
 
-func (s *sqlTx) Rollback() error {
+func (s *SqlTx) Rollback() error {
 	if s.created {
 		s.cx.tx = nil
 		return s.Tx.Rollback()
@@ -75,7 +75,7 @@ func (s *sqlTx) Rollback() error {
 	return nil
 }
 
-func (s *sqlTx) Commit() error {
+func (s *SqlTx) Commit() error {
 	if s.created {
 		s.cx.tx = nil
 		return s.Tx.Commit()
