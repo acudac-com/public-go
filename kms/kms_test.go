@@ -5,7 +5,12 @@ import (
 	"testing"
 
 	"github.com/acudac-com/public-go/cx"
+	"github.com/acudac-com/public-go/storage"
 )
+
+func init() {
+	storage.UseFs("")
+}
 
 func BenchmarkKeyId(b *testing.B) {
 	cx, _ := cx.Now(b.Context())

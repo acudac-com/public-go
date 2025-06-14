@@ -12,14 +12,11 @@ import (
 	"time"
 
 	"github.com/acudac-com/public-go/b64"
-	"github.com/acudac-com/public-go/blob"
 	"github.com/acudac-com/public-go/cx"
+	"github.com/acudac-com/public-go/storage"
 )
 
 var (
-	// Recommended to set this on init to your desired blob storage
-	// implementation, e.g. GCS bucket.
-	Storage blob.Storage = blob.NewFsStorage("")
 	// How often key is rotated. Default is 24 hours.
 	RotationFreq = 24 * time.Hour
 	// How long a key is valid for. Default is 7 days.
@@ -68,21 +65,21 @@ func generateKey() ([]byte, error) {
 	return key, nil
 }
 
-// Returns the blob key based on the provided key id
+// Returns the storage key based on the provided key id
 func blobKey(keyId string) string {
 	return ".keys/" + keyId
 }
 
-// Writes a newly generated key to storage for the specified blob id (not key
+// Writes a newly generated key to storage for the specified storage id (not key
 // id). Will first attempt write, but if fails due to already existing key, it
 // will simply read and return the existing key. Does NOT consult the keys
 // sync.Map cache.
 func writeOrReadExisting(ctx context.Context, blobId *string, data []byte) ([]byte, error) {
-	if err := Storage.WriteIfMissing(ctx, *blobId, data); err != nil {
-		if _, ok := err.(*blob.AlreadyExistsError); !ok {
+	if err := storage.WriteIfMissing(ctx, *blobId, data); err != nil {
+		if _, ok := err.(*storage.AlreadyExistsError); !ok {
 			return nil, e("writing generated key to storage: %w", err)
 		}
-		if data, err = Storage.Read(ctx, *blobId); err != nil {
+		if data, err = storage.Read(ctx, *blobId); err != nil {
 			return nil, e("reading already existing key from storage: %w", err)
 		}
 	}
@@ -109,8 +106,8 @@ func key(ctx context.Context, id *string, createIfMissing bool) ([]byte, error) 
 				return nil, err
 			}
 		} else {
-			if key, err = Storage.Read(ctx, blobKey); err != nil {
-				if _, ok := err.(*blob.NotFoundError); ok {
+			if key, err = storage.Read(ctx, blobKey); err != nil {
+				if _, ok := err.(*storage.NotFoundError); ok {
 					return nil, e("key not found: " + *id)
 				}
 				return nil, err
