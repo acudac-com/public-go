@@ -167,12 +167,16 @@ func Update(ctx context.Context, r Record) error {
 	query := f("update %s set %s where %s",
 		tbl, strings.Join(setClauses, ", "), condition)
 	setArgs = append(setArgs, conditionArgs...)
-	affectedRows, err := Exec(ctx, query, setArgs...)
+	result, err := Exec(ctx, query, setArgs...)
 	if err != nil {
 		return e("updating %s: %w", recordIdentifier(r), err)
 	}
-	if affectedRows == 0 {
+	if affectedRows, err := result.RowsAffected(); err != nil {
+		return e("updating %s: %w", recordIdentifier(r), err)
+	} else if affectedRows == 0 {
 		return notFound("updating", r)
+	} else if affectedRows > 1 {
+		return e("updating %s: expected 1 row affected, got %d", recordIdentifier(r), affectedRows)
 	}
 
 	// clear updated set
@@ -200,10 +204,16 @@ func Delete(ctx context.Context, r Record) error {
 	}
 	condition := strings.Join(conditions, "and")
 	query := f("delete from %s where %s", tbl, condition)
-	if rowsAffected, err := Exec(ctx, query, args...); err != nil {
+	if result, err := Exec(ctx, query, args...); err != nil {
 		return e("deleting %T: %w", r, err)
-	} else if rowsAffected == 0 {
-		return notFound("deleting", r)
+	} else {
+		if rowsAffected, err := result.RowsAffected(); err != nil {
+			return e("deleting %s: %w", recordIdentifier(r), err)
+		} else if rowsAffected == 0 {
+			return notFound("deleting", r)
+		} else if rowsAffected > 1 {
+			return e("deleting %s: expected 1 row affected, got %d", recordIdentifier(r), rowsAffected)
+		}
 	}
 	return nil
 }

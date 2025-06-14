@@ -18,6 +18,12 @@ var (
 	Db *sql.DB
 )
 
+func init() {
+	if env.OptionalString("SPANNER_PROJECT", "") != "" {
+		UseSpanner()
+	}
+}
+
 func UseSpanner() {
 	ctx := context.Background()
 	var err error
@@ -56,23 +62,13 @@ func BeginTx(ctx context.Context, opts *sql.TxOptions) (*cx.Cx, *cx.SqlTx, error
 
 // Executes the provided query. If the ctx contains a transaction, it will be
 // used instead the default Db.ExecContext.
-func Exec(ctx context.Context, query string, args ...any) (int64, error) {
-	var err error
-	var result sql.Result
+func Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	tx := cx.TxIfExists(ctx)
 	if tx == nil {
-		result, err = Db.ExecContext(ctx, query, args...)
+		return Db.ExecContext(ctx, query, args...)
 	} else {
-		result, err = tx.ExecContext(ctx, query, args...)
+		return tx.ExecContext(ctx, query, args...)
 	}
-	if err != nil {
-		return 0, err
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, e("getting rows affected: %w", err)
-	}
-	return rowsAffected, nil
 }
 
 // Executes the provided query. If the ctx contains a transaction, it will be
