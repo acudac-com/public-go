@@ -6,18 +6,32 @@ import (
 	"fmt"
 	"strings"
 
+	"cloud.google.com/go/spanner"
 	"github.com/acudac-com/public-go/cx"
+	"github.com/acudac-com/public-go/env"
 	spannerdriver "github.com/googleapis/go-sql-spanner"
 	"go.alis.build/alog"
+	"google.golang.org/api/option"
 )
 
 var (
 	Db *sql.DB
 )
 
-func UseSpanner(cfg spannerdriver.ConnectorConfig) {
+func UseSpanner() {
 	ctx := context.Background()
 	var err error
+	cfg := spannerdriver.ConnectorConfig{
+		Project:            env.RequiredString("SPANNER_PROJECT"),
+		Instance:           env.RequiredString("SPANNER_INSTANCE"),
+		Database:           env.OptionalString("SPANNER_DB", env.Env),
+		AutoConfigEmulator: env.OptionalBool("SPANNER_EMULATOR", env.IsLocal()),
+		Configurator: func(config *spanner.ClientConfig, opts *[]option.ClientOption) {
+			if !env.IsLocal() {
+				config.DatabaseRole = env.OptionalString("SPANNER_ROLE", env.Product)
+			}
+		},
+	}
 
 	// Create a Connector for Spanner to create a DB with a custom configuration.
 	c, err := spannerdriver.CreateConnector(cfg)
@@ -33,12 +47,11 @@ func UseSpanner(cfg spannerdriver.ConnectorConfig) {
 	Db = sqlDb
 }
 
-// Will not begin a new tx if ctx already has an existing ctx. Returns a handler
-// that should be used to defer rollback and commit if the transaction was
-// started here.
-func BeginTx(ctx context.Context, opts *sql.TxOptions) (*cx.Cx, error) {
-	cx, _, err := cx.Tx(ctx, Db)
-	return cx, err
+// Will not begin a new tx if ctx already has an existing tx. Remember to defer
+// tx.Rollback() and err := tx.Commit(); err != nil{...} at the end of your
+// function.
+func BeginTx(ctx context.Context, opts *sql.TxOptions) (*cx.Cx, *cx.SqlTx, error) {
+	return cx.Tx(ctx, Db)
 }
 
 // Executes the provided query. If the ctx contains a transaction, it will be
