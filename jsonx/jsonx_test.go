@@ -2,16 +2,18 @@ package jsonx_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/acudac-com/public-go/jsonx"
 )
 
 type Payload struct {
-	UserId string
-	Role   string
+	UserId     string
+	Role       string
+	CreateTime time.Time
 }
 
-var payload = &Payload{"12345", "Owner"}
+var payload = &Payload{"12345", "Owner", time.Now()}
 
 func TestAll(t *testing.T) {
 	for _, jx := range []*jsonx.Jsonx[*Payload]{
@@ -33,7 +35,7 @@ func TestAll(t *testing.T) {
 			t.Errorf("Unmarshal failed: %v", err)
 			continue
 		}
-		if unmarshalled.UserId != payload.UserId || unmarshalled.Role != payload.Role {
+		if unmarshalled.UserId != payload.UserId || unmarshalled.Role != payload.Role || !unmarshalled.CreateTime.Equal(payload.CreateTime) {
 			t.Errorf("Unmarshalled data does not match original: got %v, want %v", unmarshalled, payload)
 		} else {
 			t.Logf("Unmarshalled data matches original: %v", unmarshalled)
