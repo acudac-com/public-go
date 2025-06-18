@@ -50,6 +50,12 @@ func ReadPlain[T any](ctx context.Context, path string, r *http.Request, v T) T 
 	return v
 }
 
+// Deletes the encrypted cookie for the specified path.
+func DeletePlain(ctx context.Context, path string, w http.ResponseWriter) {
+	name := name("plain", path)
+	setCookie(ctx, w, name, "", path)
+}
+
 // Write the unencrypted, unhashed, base64 json marshalled cookie for the
 // specified path.
 func WriteHashed(ctx context.Context, path string, w http.ResponseWriter, v any) {
@@ -71,6 +77,12 @@ func ReadHashed[T any](ctx context.Context, path string, r *http.Request, v T) T
 	}
 	jsonx.UnhashB64(ctx, []byte(cookie.Value), v)
 	return v
+}
+
+// Deletes the encrypted cookie for the specified path.
+func DeleteHashed(ctx context.Context, path string, w http.ResponseWriter) {
+	name := name("hashed", path)
+	setCookie(ctx, w, name, "", path)
 }
 
 // Write the unencrypted, unhashed, base64 json marshalled cookie for the
@@ -97,6 +109,12 @@ func ReadEncrypted[T any](ctx context.Context, path string, r *http.Request, v T
 	return v
 }
 
+// Deletes the encrypted cookie for the specified path.
+func DeleteEncrypted(ctx context.Context, path string, w http.ResponseWriter) {
+	name := name("encrypted", path)
+	setCookie(ctx, w, name, "", path)
+}
+
 // Returns the name of the cookie at the specified path.
 func name(prefix string, path string) string {
 	name := prefix + strings.ReplaceAll(path, "/", "_")
@@ -104,6 +122,10 @@ func name(prefix string, path string) string {
 }
 
 func setCookie(ctx context.Context, w http.ResponseWriter, name, value, path string) {
+	maxAge := MaxAge
+	if value == "" {
+		maxAge = -1 // Delete the cookie by setting MaxAge to -1
+	}
 	cookie := &http.Cookie{
 		Name:     name,
 		Value:    value,
@@ -111,7 +133,7 @@ func setCookie(ctx context.Context, w http.ResponseWriter, name, value, path str
 		HttpOnly: HttpOnly,
 		SameSite: SameSite,
 		Secure:   Secure,
-		MaxAge:   MaxAge, // 400 days
+		MaxAge:   maxAge,
 	}
 	if err := cookie.Valid(); err != nil {
 		alog.Errorf(ctx, "invalid cookie: %v", err)
