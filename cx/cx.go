@@ -29,9 +29,9 @@ func (cx *Cx) Now() time.Time {
 	return now
 }
 
-func Now(ctx context.Context) (*Cx, time.Time) {
+func Now(ctx context.Context) time.Time {
 	cx := New(ctx)
-	return cx, cx.Now()
+	return cx.Now()
 }
 
 type SqlTx struct {
@@ -40,19 +40,19 @@ type SqlTx struct {
 	cx      *Cx
 }
 
-func (cx *Cx) Tx(db *sql.DB) (*SqlTx, error) {
+func (cx *Cx) Tx(db *sql.DB) *SqlTx {
 	if cx.tx != nil {
-		return &SqlTx{Tx: cx.tx.Tx, cx: cx}, nil
+		return &SqlTx{Tx: cx.tx.Tx, cx: cx}
 	}
 
 	tx, err := db.BeginTx(cx.Context, nil)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	return &SqlTx{Tx: tx, cx: cx, created: true}, nil
 }
 
-func Tx(ctx context.Context, db *sql.DB) (*Cx, *SqlTx, error) {
+func Tx(ctx context.Context, db *sql.DB) (*SqlTx, error) {
 	cx := New(ctx)
 	tx, err := cx.Tx(db)
 	return cx, tx, err
