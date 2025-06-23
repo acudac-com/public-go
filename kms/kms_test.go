@@ -13,7 +13,7 @@ func init() {
 }
 
 func BenchmarkKeyId(b *testing.B) {
-	cx, _ := cx.Now(b.Context())
+	cx := cx.New(b.Context())
 	expectedId := keyId(cx)
 	b.Log(*expectedId)
 	for b.Loop() {
@@ -38,7 +38,7 @@ func BenchmarkGenerateKey(b *testing.B) {
 }
 
 func BenchmarkKey(b *testing.B) {
-	cx, _ := cx.Now(b.Context())
+	cx := cx.New(b.Context())
 	id := keyId(cx)
 	originalK, err := key(cx, id, true)
 	if err != nil {

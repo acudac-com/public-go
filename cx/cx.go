@@ -49,13 +49,12 @@ func (cx *Cx) Tx(db *sql.DB) *SqlTx {
 	if err != nil {
 		panic(err)
 	}
-	return &SqlTx{Tx: tx, cx: cx, created: true}, nil
+	return &SqlTx{Tx: tx, cx: cx, created: true}
 }
 
-func Tx(ctx context.Context, db *sql.DB) (*SqlTx, error) {
+func Tx(ctx context.Context, db *sql.DB) *SqlTx {
 	cx := New(ctx)
-	tx, err := cx.Tx(db)
-	return cx, tx, err
+	return cx.Tx(db)
 }
 
 func (cx *Cx) TxIfExists() *SqlTx {

@@ -17,10 +17,7 @@ func BenchmarkNow(t *testing.B) {
 func TextTx(t *testing.B) {
 	cx := cx.New(t.Context())
 	db := &sql.DB{} // Mock or actual database connection
-	tx, err := cx.Tx(db)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tx := cx.Tx(db)
 	defer tx.Rollback()
 	if tx == nil {
 		t.Fatal("Expected non-nil transaction")

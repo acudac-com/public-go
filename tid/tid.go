@@ -26,9 +26,9 @@ func LatestFirst(ctx context.Context) string {
 // time. This helps with handling bursts of id generations without any
 // conflicts.
 func timeWithYearJumps(ctx context.Context) time.Time {
-	_, t := cx.Now(ctx)
-	dur := time.Duration((-30+t.Second())*1e9) * 3600 * 24 * 365
-	return t.Add(dur)
+	now := cx.Now(ctx)
+	dur := time.Duration((-30+now.Second())*1e9) * 3600 * 24 * 365
+	return now.Add(dur)
 }
 
 // Returns a random unix time based id. Includes jitter to prevent db hotspots
@@ -83,7 +83,7 @@ const (
 // Returns a unix time based id that ensures later values are lexacographically
 // smaller to appear first when listed from a database.
 func UnixLatestFirst(ctx context.Context) string {
-	_, now := cx.Now(ctx)
+	now := cx.Now(ctx)
 	dif := Y5138Unix - now.Unix()
 	return fmt.Sprintf("%08s", base36(dif))
 }
@@ -91,7 +91,7 @@ func UnixLatestFirst(ctx context.Context) string {
 // Returns a unix millisecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
 func MilliLatestFirst(ctx context.Context) string {
-	_, now := cx.Now(ctx)
+	now := cx.Now(ctx)
 	dif := Y5138Milli - now.UnixMilli()
 	return fmt.Sprintf("%09s", base36(dif))
 }
@@ -99,7 +99,7 @@ func MilliLatestFirst(ctx context.Context) string {
 // Returns a unix microsecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
 func MicroLatestFirst(ctx context.Context) string {
-	_, now := cx.Now(ctx)
+	now := cx.Now(ctx)
 	dif := Y5138Micro - now.UnixMicro()
 	return fmt.Sprintf("%011s", base36(dif))
 }

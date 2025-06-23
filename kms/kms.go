@@ -16,11 +16,13 @@ import (
 	"github.com/acudac-com/public-go/storage"
 )
 
+const KeyFormat string = "20060102_1504"
+
 var (
-	// How often key is rotated. Default is 24 hours.
-	RotationFreq = 24 * time.Hour
-	// How long a key is valid for. Default is 7 days.
-	MaxAge = 24 * 7 * time.Hour
+	// How often key is rotated. Default is 30 days.
+	RotationFreq = 30 * 24 * time.Hour
+	// How long a key is valid for. Default is 90 days.
+	MaxAge = 90 * 24 * time.Hour
 	// Concurrency proof cache of keys.
 	keys = &sync.Map{}
 
@@ -28,24 +30,22 @@ var (
 	e = fmt.Errorf
 )
 
-const keyFormat string = "20060102_150405"
-
-var keyLength = len(keyFormat)
+var keyLength = len(KeyFormat)
 
 // Determines the current key id to use for hashing/encrypting data
 func keyId(ctx context.Context) *string {
-	_, now := cx.Now(ctx)
+	now := cx.Now(ctx)
 	t := now.Truncate(RotationFreq)
-	id := t.Format(keyFormat) // Format as YYYYMMDD_HHMMSS
+	id := t.Format(KeyFormat) // Format as YYYYMMDD_HHMMSS
 	return &id
 }
 
 // Determines if the provided key is valid and not expired.
 func validateKeyId(ctx context.Context, id string) error {
-	_, now := cx.Now(ctx)
-	t, err := time.Parse(keyFormat, id)
+	now := cx.Now(ctx)
+	t, err := time.Parse(KeyFormat, id)
 	if err != nil {
-		return e("invalid key id format: %s, expected format: %s", id, keyFormat)
+		return e("invalid key id format: %s, expected format: %s", id, KeyFormat)
 	}
 	if t.After(now) {
 		return e("key id %s is in the future", id)

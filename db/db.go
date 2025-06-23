@@ -14,9 +14,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-var (
-	Db *sql.DB
-)
+var Db *sql.DB
 
 func init() {
 	if env.OptionalString("SPANNER_PROJECT", "") != "" {
@@ -56,7 +54,7 @@ func UseSpanner() {
 // Will not begin a new tx if ctx already has an existing tx. Remember to defer
 // tx.Rollback() and err := tx.Commit(); err != nil{...} at the end of your
 // function.
-func BeginTx(ctx context.Context, opts *sql.TxOptions) (*cx.Cx, *cx.SqlTx, error) {
+func BeginTx(ctx context.Context, opts *sql.TxOptions) *cx.SqlTx {
 	return cx.Tx(ctx, Db)
 }
 
