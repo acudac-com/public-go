@@ -12,10 +12,13 @@ var (
 	Product = RequiredString("PRODUCT")
 )
 
+// Returns true if "ENV" environment variables equals "local".
 func IsLocal() bool {
 	return Env == "local"
 }
 
+// Returns the string value of the environment variable at the specified key, or panics
+// if its empty.
 func RequiredString(key string) string {
 	value := os.Getenv(key)
 	if value == "" {
@@ -24,6 +27,8 @@ func RequiredString(key string) string {
 	return value
 }
 
+// Returns the string value of the environment variable at the specified key, or
+// the fallback if its empty.
 func OptionalString(key string, fallback string) string {
 	value := os.Getenv(key)
 	if value == "" {
@@ -32,21 +37,26 @@ func OptionalString(key string, fallback string) string {
 	return value
 }
 
+// Returns the boolean value of the environment variable at the specified key,
+// or panics if its not equal to "true" or "false".
 func RequiredBool(key string) bool {
 	value := os.Getenv(key)
 	if value == "" {
 		alog.Fatalf(context.Background(), "%s environment variable is required", key)
 	}
-	if value == "true" {
+	switch value {
+	case "true":
 		return true
-	} else if value == "false" {
+	case "false":
 		return false
-	} else {
+	default:
 		alog.Fatalf(context.Background(), "%s environment variable must be 'true' or 'false'", key)
 		return false // will never execute
 	}
 }
 
+// Returns the boolean value of the environment variable at the specified key,
+// or the fallback if its empty.
 func OptionalBool(key string, fallback bool) bool {
 	value := os.Getenv(key)
 	if value == "" {
