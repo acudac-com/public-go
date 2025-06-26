@@ -2,6 +2,7 @@ package sqlx
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -18,43 +19,42 @@ type FieldI interface {
 	Pointer() any
 }
 
-type fieldT[T any] struct {
+type field[T any] struct {
 	name       string
 	value      *T
 	primaryKey bool
 }
 
 // Returns name of the field
-func (f *fieldT[T]) Name() string {
+func (f *field[T]) Name() string {
 	return f.name
 }
 
 // Returns value of the field
-func (f *fieldT[T]) Value() any {
+func (f *field[T]) Value() any {
 	return *f.value
 }
 
 // Returns pointer to the field
-func (f *fieldT[T]) Pointer() any {
+func (f *field[T]) Pointer() any {
 	return f.value
 }
 
 // Use as element in []FieldI
-func Field[T any](name string, value *T) *fieldT[T] {
-	return &fieldT[T]{name, value, false}
+func Field[T any](name string, value *T) *field[T] {
+	return &field[T]{name, value, false}
 }
 
 // Inserts the given record in the specified table.
-func Insert(ctx context.Context, r Record) error {
+func (d *Db) Insert(ctx context.Context, r Record) error {
 	tbl, fields, _ := r.Info()
 	fieldL := len(fields)
 	if fieldL == 0 {
-		return e("no fields for %T", r)
+		panic(fmt.Errorf("sqlx.Db.Insert(): no fields for %T", r))
 	}
 
-	// build up cols, placeholders and args
+	// build up cols and args
 	columns := make([]string, 0, fieldL)
-	placeHolders := Placeholders(fieldL)
 	args := make([]any, 0, fieldL)
 	for _, field := range fields {
 		columns = append(columns, field.Name())
@@ -62,31 +62,31 @@ func Insert(ctx context.Context, r Record) error {
 	}
 
 	// exec query
-	query := f("insert into %s (%s) values (%s)",
-		tbl, strings.Join(columns, ", "), placeHolders)
-	if _, err := Exec(ctx, query, args...); err != nil {
+	query := fmt.Sprintf("insert into %s (%s) values (%s)",
+		tbl, strings.Join(columns, ", "), Placeholders(fieldL))
+	if _, err := d.Exec(ctx, query, args...); err != nil {
 		if status.Code(err) == codes.AlreadyExists {
 			return alreadyExist(r)
 		}
-		return e("inserting %s: %w", recordIdentifier(r), err)
+		return fmt.Errorf("inserting %s: %w", recordIdentifier(r), err)
 	}
 	return nil
 }
 
 // Gets the given record from the specified table. Only uses the primary key
 // fields to build the needed query.
-func Get(ctx context.Context, r Record) error {
+func (d *Db) Get(ctx context.Context, r Record) error {
 	tbl, fields, _ := r.Info()
-	if len(fields) == 0 {
-		return e("getting %T: empty field map", r)
-	}
 	fieldL := len(fields)
+	if fieldL == 0 {
+		panic(fmt.Errorf("sqlx.Db.Get(): no fields for %T", r))
+	}
 
-	// build up cols, condition, args and destinations
-	cols := make([]string, 0, fieldL)
+	// build up conditions, args, cols & destinations
 	conditions := make([]string, 0, fieldL)
 	args := make([]any, 0, fieldL)
-	destinations := make([]any, 0, len(fields))
+	cols := make([]string, 0, fieldL)
+	destinations := make([]any, 0, fieldL)
 	for _, field := range fields {
 		if strings.HasSuffix(field.Name(), "_pk") {
 			conditions = append(conditions, field.Name()+" = ?")
@@ -97,22 +97,22 @@ func Get(ctx context.Context, r Record) error {
 		}
 	}
 	if len(conditions) == 0 {
-		return e("getting %T: no primary key columns found", r)
+		panic(fmt.Errorf("sqlx.Db.Get(): no primary key columns for %T", r))
 	}
 
 	// if no non-pk cols, use first pk col
 	if len(cols) == 0 {
 		cols = append(cols, fields[0].Name())
-		destinations = append(destinations, fields[0].Value())
+		destinations = append(destinations, fields[0].Pointer())
 	}
 	condition := strings.Join(conditions, " and ")
 
 	// exec query
-	query := f("select %s from %s where %s",
+	query := fmt.Sprintf("select %s from %s where %s",
 		strings.Join(cols, ","), tbl, condition)
-	rows, err := Query(ctx, query, args...)
+	rows, err := d.Query(ctx, query, args...)
 	if err != nil {
-		return e("getting %T: %w", r, err)
+		return fmt.Errorf("getting %T: %w", r, err)
 	}
 
 	// process rows
@@ -121,62 +121,61 @@ func Get(ctx context.Context, r Record) error {
 		return notFound("getting", r)
 	}
 	if err := rows.Scan(destinations...); err != nil {
-		return e("getting %s: %w", recordIdentifier(r), err)
+		return fmt.Errorf("getting %s: %w", recordIdentifier(r), err)
 	}
 	return nil
 }
 
 // Updates the given record in the specified table. At least one fields must be
 // specified, but more than one may be specified.
-func Update(ctx context.Context, r Record) error {
+func (d *Db) Update(ctx context.Context, r Record) error {
 	tbl, fields, updated := r.Info()
-	if len(fields) == 0 {
-		return e("updating %T: empty col map", r)
-	}
 	fieldL := len(fields)
 	updatedL := len(updated)
+	if fieldL == 0 {
+		panic(fmt.Errorf("sqlx.Db.Update(): no fields for %T", r))
+	}
+	if updatedL == 0 {
+		panic(fmt.Errorf("sqlx.Db.Update(): no fields to update for %T", r))
+	}
 
-	// build up conditions
+	// build up conditions and set clauses
 	conditions := make([]string, 0, fieldL)
 	conditionArgs := make([]any, 0, fieldL)
+	setClauses := make([]string, 0, updatedL)
+	setArgs := make([]any, 0, updatedL)
 	for _, field := range fields {
 		if strings.HasSuffix(field.Name(), "_pk") {
 			conditions = append(conditions, field.Name()+" = ?")
 			conditionArgs = append(conditionArgs, field.Value())
-		}
-	}
-	if len(conditions) == 0 {
-		return e("updating %T: no primary key columns found", r)
-	}
-	condition := strings.Join(conditions, " and ")
-
-	// build up set clauses and args
-	setClauses := make([]string, 0, updatedL)
-	setArgs := make([]any, 0, updatedL)
-	for _, field := range fields {
-		if _, ok := updated[field.Name()]; ok {
+		} else if _, ok := updated[field.Name()]; ok {
 			setClauses = append(setClauses, field.Name()+" = ?")
 			setArgs = append(setArgs, field.Value())
 		}
 	}
+	if len(conditions) == 0 {
+		panic(fmt.Errorf("sqlx.Db.Update(): no primary key columns for %T", r))
+	}
 	if len(setClauses) == 0 {
-		return e("updating %s: no fields to update", recordIdentifier(r))
+		return fmt.Errorf("updating %s: no fields to update", recordIdentifier(r))
 	}
 
 	// exec query
-	query := f("update %s set %s where %s",
-		tbl, strings.Join(setClauses, ", "), condition)
+	query := fmt.Sprintf("update %s set %s where %s",
+		tbl, strings.Join(setClauses, ", "), strings.Join(conditions, " and "))
 	setArgs = append(setArgs, conditionArgs...)
-	result, err := Exec(ctx, query, setArgs...)
+	result, err := d.Exec(ctx, query, setArgs...)
 	if err != nil {
-		return e("updating %s: %w", recordIdentifier(r), err)
+		return fmt.Errorf("updating %s: %w", recordIdentifier(r), err)
 	}
+
+	// process result
 	if affectedRows, err := result.RowsAffected(); err != nil {
-		return e("updating %s: %w", recordIdentifier(r), err)
+		return fmt.Errorf("updating %s: %w", recordIdentifier(r), err)
 	} else if affectedRows == 0 {
 		return notFound("updating", r)
 	} else if affectedRows > 1 {
-		return e("updating %s: expected 1 row affected, got %d", recordIdentifier(r), affectedRows)
+		panic(fmt.Errorf("sqlx.Db.Update(): more than one (%d) row affected for %s", affectedRows, recordIdentifier(r)))
 	}
 
 	// clear updated set
@@ -188,9 +187,14 @@ func Update(ctx context.Context, r Record) error {
 
 // Deletes the given record from the specified table. Only uses the primary key
 // columns (ending with "_pk") to build the query.
-func Delete(ctx context.Context, r Record) error {
+func (d *Db) Delete(ctx context.Context, r Record) error {
 	tbl, fields, _ := r.Info()
 	fieldL := len(fields)
+	if fieldL == 0 {
+		panic(fmt.Errorf("sqlx.Db.Delete(): no fields for %T", r))
+	}
+
+	// build up conditions and args
 	conditions := make([]string, 0, fieldL)
 	args := make([]any, 0, fieldL)
 	for _, field := range fields {
@@ -200,20 +204,24 @@ func Delete(ctx context.Context, r Record) error {
 		}
 	}
 	if len(conditions) == 0 {
-		return e("deleting %T: no primary keys found", r)
+		panic(fmt.Errorf("sqlx.Db.Delete(): no primary keys columns found for %T", r))
 	}
-	condition := strings.Join(conditions, "and")
-	query := f("delete from %s where %s", tbl, condition)
-	if result, err := Exec(ctx, query, args...); err != nil {
-		return e("deleting %T: %w", r, err)
-	} else {
-		if rowsAffected, err := result.RowsAffected(); err != nil {
-			return e("deleting %s: %w", recordIdentifier(r), err)
-		} else if rowsAffected == 0 {
-			return notFound("deleting", r)
-		} else if rowsAffected > 1 {
-			return e("deleting %s: expected 1 row affected, got %d", recordIdentifier(r), rowsAffected)
-		}
+
+	// execute query
+	query := fmt.Sprintf("delete from %s where %s",
+		tbl, strings.Join(conditions, " and "))
+	result, err := d.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("deleting %T: %w", r, err)
+	}
+
+	// process result
+	if rowsAffected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("deleting %s: %w", recordIdentifier(r), err)
+	} else if rowsAffected == 0 {
+		return notFound("deleting", r)
+	} else if rowsAffected > 1 {
+		panic(fmt.Errorf("sqlx.Db.Delete(): more than one (%d) row affected for %s", rowsAffected, recordIdentifier(r)))
 	}
 	return nil
 }
@@ -228,7 +236,7 @@ func (e *NotFoundError) Error() string {
 
 func notFound(action string, r Record) *NotFoundError {
 	return &NotFoundError{
-		err: f("%s %s: not found", action, recordIdentifier(r)),
+		err: fmt.Sprintf("%s %s: not found", action, recordIdentifier(r)),
 	}
 }
 
@@ -242,7 +250,7 @@ func (e *AlreadyExistsError) Error() string {
 
 func alreadyExist(r Record) *AlreadyExistsError {
 	return &AlreadyExistsError{
-		err: f("inserting %s: already exists", recordIdentifier(r)),
+		err: fmt.Sprintf("inserting %s: already exists", recordIdentifier(r)),
 	}
 }
 
@@ -251,8 +259,17 @@ func recordIdentifier(r Record) string {
 	keys := make([]string, 0, len(fields))
 	for _, field := range fields {
 		if strings.HasSuffix(field.Name(), "_pk") {
-			keys = append(keys, f("%+v", field.Value()))
+			keys = append(keys, fmt.Sprintf("%+v", field.Value()))
 		}
 	}
-	return f("%T(%s)", r, strings.Join(keys, ", "))
+	return fmt.Sprintf("%T(%s)", r, strings.Join(keys, ", "))
+}
+
+// Returns a string with a number of placeholders (?) for SQL queries.
+func Placeholders(nr int) string {
+	placeholders := make([]string, 0, nr)
+	for range nr {
+		placeholders = append(placeholders, "?")
+	}
+	return strings.Join(placeholders, ", ")
 }
