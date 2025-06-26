@@ -1,19 +1,28 @@
+/*
+Package b64 provides utility functions for encoding and decoding data using
+Base64 encoding. It supports both standard Base64 and URL-safe Base64 (for use
+in URLs and cookies).
+*/
 package b64
 
 import "encoding/base64"
 
+// Base64 encodes the payload, using URLEncoding to be used in urls and cookies.
 func UrlEncode(data []byte) []byte {
 	return encode(base64.URLEncoding, data)
 }
 
+// Base64 decodes the payload, using URLEncoding to be used in urls and cookies.
 func UrlDecode(data []byte) ([]byte, error) {
 	return decode(base64.URLEncoding, data)
 }
 
+// Base64 encodes the payload.
 func StdEncode(data []byte) []byte {
 	return encode(base64.StdEncoding, data)
 }
 
+// Base64 decodes the payload.
 func StdDecode(data []byte) ([]byte, error) {
 	return decode(base64.StdEncoding, data)
 }

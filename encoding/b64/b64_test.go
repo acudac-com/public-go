@@ -3,7 +3,7 @@ package b64_test
 import (
 	"testing"
 
-	"github.com/acudac-com/public-go/b64"
+	"github.com/acudac-com/public-go/encoding/b64"
 )
 
 var data = []byte("Hello, World!")
