@@ -1,4 +1,4 @@
-package tid
+package timex
 
 import (
 	"context"
@@ -6,19 +6,35 @@ import (
 	"math/rand"
 	"strconv"
 	"time"
-
-	"github.com/acudac-com/public-go/cx"
 )
+
+type CtxKey string
+
+const TimeCtxKey CtxKey = "now"
+
+func Now(ctx context.Context) (context.Context, time.Time) {
+	nowV := ctx.Value(TimeCtxKey)
+	if nowV != nil {
+		if now, ok := nowV.(time.Time); ok {
+			return ctx, now
+		} else {
+			panic(fmt.Errorf("timex.Now() expected time.Time, got %T", nowV))
+		}
+	} else {
+		now := time.Now().UTC()
+		return context.WithValue(ctx, TimeCtxKey, now), now
+	}
+}
 
 // Returns a random unix millisecond time based id. Includes jitter to prevent
 // db hotspots and handle bursts of new ids being generated.
-func Sparse(ctx context.Context) string {
+func SparseId(ctx context.Context) string {
 	return MilliSparse(ctx)
 }
 
 // Returns a unix microsecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
-func LatestFirst(ctx context.Context) string {
+func LatestFirstId(ctx context.Context) string {
 	return MicroLatestFirst(ctx)
 }
 
@@ -26,7 +42,7 @@ func LatestFirst(ctx context.Context) string {
 // time. This helps with handling bursts of id generations without any
 // conflicts.
 func timeWithYearJumps(ctx context.Context) time.Time {
-	now := cx.Now(ctx)
+	_, now := Now(ctx)
 	dur := time.Duration((-30+now.Second())*1e9) * 3600 * 24 * 365
 	return now.Add(dur)
 }
@@ -83,7 +99,7 @@ const (
 // Returns a unix time based id that ensures later values are lexacographically
 // smaller to appear first when listed from a database.
 func UnixLatestFirst(ctx context.Context) string {
-	now := cx.Now(ctx)
+	_, now := Now(ctx)
 	dif := Y5138Unix - now.Unix()
 	return fmt.Sprintf("%08s", base36(dif))
 }
@@ -91,7 +107,7 @@ func UnixLatestFirst(ctx context.Context) string {
 // Returns a unix millisecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
 func MilliLatestFirst(ctx context.Context) string {
-	now := cx.Now(ctx)
+	_, now := Now(ctx)
 	dif := Y5138Milli - now.UnixMilli()
 	return fmt.Sprintf("%09s", base36(dif))
 }
@@ -99,7 +115,7 @@ func MilliLatestFirst(ctx context.Context) string {
 // Returns a unix microsecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
 func MicroLatestFirst(ctx context.Context) string {
-	now := cx.Now(ctx)
+	_, now := Now(ctx)
 	dif := Y5138Micro - now.UnixMicro()
 	return fmt.Sprintf("%011s", base36(dif))
 }
