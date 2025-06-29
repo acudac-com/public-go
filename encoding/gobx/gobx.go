@@ -9,7 +9,6 @@ package gobx
 
 import (
 	"bytes"
-	"context"
 	"encoding/gob"
 	"fmt"
 
@@ -17,7 +16,7 @@ import (
 )
 
 // Gob encodes the payload.
-func Marshal(ctx context.Context, payload any) []byte {
+func Marshal(payload any) []byte {
 	buf := new(bytes.Buffer)
 	enc := gob.NewEncoder(buf)
 	if err := enc.Encode(payload); err != nil {
@@ -27,13 +26,13 @@ func Marshal(ctx context.Context, payload any) []byte {
 }
 
 // Gob encodes the payload and base64 url encodes the result.
-func MarshalB64(ctx context.Context, payload any) []byte {
-	marshalled := Marshal(ctx, payload)
+func MarshalB64(payload any) []byte {
+	marshalled := Marshal(payload)
 	return b64.UrlEncode(marshalled)
 }
 
 // Gob decodes the data into the provided payload.
-func Unmarshal[T any](ctx context.Context, data []byte, payload T) (T, error) {
+func Unmarshal[T any](data []byte, payload T) (T, error) {
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 	err := dec.Decode(&payload)
@@ -42,10 +41,10 @@ func Unmarshal[T any](ctx context.Context, data []byte, payload T) (T, error) {
 
 // Base64 url decodes the data and gob decodes the result into the provided
 // payload.
-func UnmarshalB64[T any](ctx context.Context, data []byte, payload T) (T, error) {
+func UnmarshalB64[T any](data []byte, payload T) (T, error) {
 	dec, err := b64.UrlDecode(data)
 	if err != nil {
 		return payload, err
 	}
-	return Unmarshal(ctx, dec, payload)
+	return Unmarshal(dec, payload)
 }

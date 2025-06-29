@@ -8,7 +8,6 @@ to and from base64 URL-safe strings.
 package jsonx
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -16,7 +15,7 @@ import (
 )
 
 // Json encodes the payload.
-func Marshal(ctx context.Context, payload any) []byte {
+func Marshal(payload any) []byte {
 	marshalled, err := json.Marshal(payload)
 	if err != nil {
 		panic(fmt.Errorf("jsonx.Marshal(): %v", err))
@@ -25,21 +24,21 @@ func Marshal(ctx context.Context, payload any) []byte {
 }
 
 // Json encodes the payload and base64 url encodes the result.
-func MarshalB64[T any](ctx context.Context, payload T) []byte {
-	marshalled := Marshal(ctx, payload)
+func MarshalB64[T any](payload T) []byte {
+	marshalled := Marshal(payload)
 	encoded := b64.UrlEncode(marshalled)
 	return encoded
 }
 
 // Json decodes the data into the provided payload.
-func Unmarshal[T any](ctx context.Context, data []byte, payload T) (T, error) {
+func Unmarshal[T any](data []byte, payload T) (T, error) {
 	err := json.Unmarshal(data, payload)
 	return payload, err
 }
 
 // Base64 url decodes the data and json decodes the result into the provided
 // payload.
-func UnmarshalB64[T any](ctx context.Context, data []byte, payload T) (T, error) {
+func UnmarshalB64[T any](data []byte, payload T) (T, error) {
 	dec, err := b64.UrlDecode(data)
 	if err != nil {
 		return payload, err
