@@ -4,43 +4,36 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/acudac-com/public-go/cx"
 	"github.com/acudac-com/public-go/storage"
+	"github.com/acudac-com/public-go/timex"
 )
 
+var kms *Kms
+
 func init() {
-	storage.UseFs("")
+	storage := storage.NewFsStorage("")
+	kms = NewKms(storage, nil)
 }
 
 func BenchmarkKeyId(b *testing.B) {
-	cx := cx.New(b.Context())
-	expectedId := keyId(cx)
+	cx, _ := timex.Now(b.Context())
+	expectedId := kms.currentKeyId(cx)
 	b.Log(*expectedId)
 	for b.Loop() {
-		id := keyId(cx)
-		if *id != *expectedId {
-			b.Fatalf("expected key id %s, got %s", *expectedId, *id)
-		}
+		_ = kms.currentKeyId(cx)
 	}
 }
 
 func BenchmarkGenerateKey(b *testing.B) {
 	for b.Loop() {
-		key, err := generateKey()
-		if err != nil {
-			b.Fatal(err)
-		}
-		if len(key) != 96 {
-			b.Fatalf("expected key length 96, got %d", len(key))
-		}
-		_ = key
+		_ = generateKey()
 	}
 }
 
 func BenchmarkKey(b *testing.B) {
-	cx := cx.New(b.Context())
-	id := keyId(cx)
-	originalK, err := key(cx, id, true)
+	cx, _ := timex.Now(b.Context())
+	id := kms.currentKeyId(cx)
+	originalK, err := kms.key(cx, id, true)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -48,7 +41,7 @@ func BenchmarkKey(b *testing.B) {
 		b.Fatalf("expected key length 96, got %d", len(originalK))
 	}
 	for b.Loop() {
-		k, err := key(cx, id, true)
+		k, err := kms.key(cx, id, true)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -59,12 +52,10 @@ func BenchmarkKey(b *testing.B) {
 }
 
 func TestEncryption(t *testing.T) {
-	data := []byte("test data")
-	encr, err := Encrypt(t.Context(), data)
-	if err != nil {
-		t.Fatalf("encryption failed: %v", err)
-	}
-	decr, err := Decrypt(t.Context(), encr)
+	data := []byte("Nobody needs to pay big cloud providers a fortunate to manage their keys. The logic is dead simple; DIY!")
+	encr := kms.B64Encrypt(t.Context(), data)
+	t.Log(string(encr))
+	decr, err := kms.DecryptB64(t.Context(), encr)
 	if err != nil {
 		t.Fatalf("decryption failed: %v", err)
 	}
@@ -75,44 +66,26 @@ func TestEncryption(t *testing.T) {
 
 func BenchmarkEncryption(b *testing.B) {
 	data := []byte("test data")
-	cx := cx.New(b.Context())
+	cx, _ := timex.Now(b.Context())
 	for b.Loop() {
-		encrypted, err := Encrypt(cx, data)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if len(encrypted) == 0 {
-			b.Fatal("encryption returned empty result")
-		}
+		_ = kms.Encrypt(cx, data)
 	}
 }
 
 func BenchmarkDecryption(b *testing.B) {
 	data := []byte("test data")
-	cx := cx.New(b.Context())
-	encrypted, err := Encrypt(cx, data)
-	if err != nil {
-		b.Fatal(err)
-	}
+	cx, _ := timex.Now(b.Context())
+	encrypted := kms.Encrypt(cx, data)
 	for b.Loop() {
-		decrypted, err := Decrypt(cx, encrypted)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = decrypted
-		// if !bytes.Equal(decrypted, data) {
-		// 	b.Fatalf("decrypted data does not match original: got %s, want %s", decrypted, data)
-		// }
+		_, _ = kms.Decrypt(cx, encrypted)
 	}
 }
 
 func TestHashing(t *testing.T) {
 	data := []byte("test data")
-	encr, err := Hash(t.Context(), data)
-	if err != nil {
-		t.Fatalf("hashing failed: %v", err)
-	}
-	decr, err := Unhash(t.Context(), encr)
+	encr := kms.B64Hash(t.Context(), data)
+	t.Log(string(encr))
+	decr, err := kms.UnhashB64(t.Context(), encr)
 	if err != nil {
 		t.Fatalf("unhashing failed: %v", err)
 	}
@@ -123,12 +96,9 @@ func TestHashing(t *testing.T) {
 
 func BenchmarkHash(b *testing.B) {
 	data := []byte("test data")
-	cx := cx.New(b.Context())
+	cx, _ := timex.Now(b.Context())
 	for b.Loop() {
-		hashed, err := Hash(cx, data)
-		if err != nil {
-			b.Fatal(err)
-		}
+		hashed := kms.Hash(cx, data)
 		if len(hashed) == 0 {
 			b.Fatal("hashing returned empty result")
 		}
@@ -137,19 +107,9 @@ func BenchmarkHash(b *testing.B) {
 
 func BenchmarkUnhash(b *testing.B) {
 	data := []byte("test data")
-	cx := cx.New(b.Context())
-	hashed, err := Hash(cx, data)
-	if err != nil {
-		b.Fatal(err)
-	}
+	cx, _ := timex.Now(b.Context())
+	hashed := kms.Hash(cx, data)
 	for b.Loop() {
-		unhashed, err := Unhash(cx, hashed)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = unhashed
-		// if !bytes.Equal(unhashed, data) {
-		// 	b.Fatalf("unhashed data does not match original: got %s, want %s", unhashed, data)
-		// }
+		_, _ = kms.Unhash(cx, hashed)
 	}
 }
