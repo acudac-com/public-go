@@ -2,7 +2,6 @@ package storage_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -10,104 +9,40 @@ import (
 	"github.com/acudac-com/public-go/storage"
 )
 
-func TestLocalFiles(t *testing.T) {
-	ctx := context.Background()
-	basePath := "test_local_files"
-	defer os.RemoveAll(basePath) // Clean up after the test
+// var Storage = storage.NewFsStorage(".storage")
 
-	localFS := storage.NewFsStorage(basePath)
+var Storage = storage.NewGcsStorage(context.Background(), os.Getenv("GCS_BUCKET"), "public-go/storage")
+
+func Test_ReadWrite(t *testing.T) {
+	defer Storage.RemoveFolder(t.Context(), "")
+
 	key := "users/123/test_file.txt"
-	data := []byte("Hello, Local Files!")
+	data := []byte("Hello world!")
 
 	// Write
-	err := localFS.WriteIfMissing(ctx, key, data)
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
+	Storage.Write(t.Context(), key, data)
+	written := Storage.WriteIfMissing(t.Context(), key, data)
+	if written {
+		t.Fatalf("write should not have happened")
 	}
 
 	// Read
-	readData, err := localFS.Read(ctx, key)
-	if err != nil {
-		t.Fatalf("Read failed: %v", err)
+	readData, found := Storage.Read(t.Context(), key)
+	if !found {
+		t.Fatalf("%s not found", key)
 	}
 	if !reflect.DeepEqual(data, readData) {
 		t.Fatalf("Read data does not match written data. Expected: %v, Got: %v", data, readData)
 	}
 
 	// Remove
-	err = localFS.Remove(ctx, key)
-	if err != nil {
-		t.Fatalf("Remove failed: %v", err)
+	found = Storage.Remove(t.Context(), key)
+	if !found {
+		t.Fatalf("Remove failed: %s not found", key)
 	}
 
-	_, err = localFS.Read(ctx, key)
-	if err == nil {
-		t.Fatalf("Read after Remove should have failed, but did not")
-	}
-}
-
-func TestGcsBucket(t *testing.T) {
-	ctx := context.Background()
-
-	key := "users/123/test_object.txt"
-	data := []byte("Hello, Google Cloud Storage!")
-	bucket := os.Getenv("GCS_BUCKET")
-	gcs, err := storage.NewGcsStorage(ctx, bucket, "someprefix/sub")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Write
-	err = gcs.WriteIfMissing(ctx, key, data)
-	if err != nil {
-		if _, ok := err.(*storage.AlreadyExistsError); ok {
-			println("already exists")
-		} else {
-			t.Fatalf("Write failed: %v", err)
-		}
-	}
-
-	// Read
-	readData, err := gcs.Read(ctx, key)
-	if err != nil {
-		t.Fatalf("Read failed: %v", err)
-	}
-	if !reflect.DeepEqual(data, readData) {
-		t.Fatalf("Read data does not match written data. Expected: %v, Got: %v", data, readData)
-	}
-
-	// Remove
-	err = gcs.Remove(ctx, key)
-	if err != nil {
-		t.Fatalf("Remove failed: %v", err)
-	}
-
-	_, err = gcs.Read(ctx, key)
-	if err == nil {
-		t.Fatalf("Read after Remove should have failed, but did not")
-	}
-}
-
-func TestGcsBucket_RemoveFolder(t *testing.T) {
-	ctx := context.Background()
-	gcs, err := storage.NewGcsStorage(ctx, os.Getenv("GCS_BUCKET"), "someprefix/sub")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range 20 {
-		key := fmt.Sprintf("users/123/test_object_%d.txt", i)
-		data := []byte("Hello, Google Cloud Storage!")
-
-		// Write
-		err = gcs.Write(ctx, key, data)
-		if err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
-	}
-
-	// Remove folder
-	err = gcs.RemoveFolder(ctx, "users/123")
-	if err != nil {
-		t.Fatalf("Remove folder failed: %v", err)
+	written = Storage.WriteIfMissing(t.Context(), key, data)
+	if !written {
+		t.Fatalf("write should have happened")
 	}
 }

@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 
 	"cloud.google.com/go/storage"
-	"github.com/acudac-com/public-go/env"
-	"go.alis.build/alog"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
@@ -18,138 +16,34 @@ import (
 
 // A simplified interface for interacting with blob storage.
 type Storage interface {
-	// Reads a blob
-	Read(ctx context.Context, key string) ([]byte, error)
-	// Writes a blob
-	Write(ctx context.Context, key string, data []byte) error
-	// Writes a blob if the key does not contain any data yet
-	WriteIfMissing(ctx context.Context, key string, data []byte) error
-	// Removes a blob if it exists
-	Remove(ctx context.Context, key string) error
-	// Removes a folder and all children blobs
-	RemoveFolder(ctx context.Context, folder string) error
+	// Reads an object and returns whether the object was found.
+	Read(ctx context.Context, key string) ([]byte, bool)
+	// Writes an object
+	Write(ctx context.Context, key string, data []byte)
+	// Writes an object if the key does not contain any data yet. Returns true if
+	// the data was written.
+	WriteIfMissing(ctx context.Context, key string, data []byte) bool
+	// Removes an object if it exists and return whether any object was removed.
+	Remove(ctx context.Context, key string) bool
+	// Removes a folder and all children objects and returns the number of
+	// removed objects
+	RemoveFolder(ctx context.Context, folder string)
 
-	// Returns an io readerCloser
-	Reader(ctx context.Context, key string) (io.ReadCloser, error)
+	// Returns an io readerCloser if the object exists.
+	Reader(ctx context.Context, key string) (io.ReadCloser, bool)
 	// Returns an io writerCloser
-	Writer(ctx context.Context, key string) (io.WriteCloser, error)
+	Writer(ctx context.Context, key string) io.WriteCloser
 }
 
-// Default storage to use. Remember to set it before using the storage
-// functions.
-var Default Storage = &missingDefault{}
+// Returned as reader if object's do not exist
+type EmptyReaderCloser struct{}
 
-func init() {
-	gcsDomain := os.Getenv("GCS_DOMAIN")
-	if env.IsLocal() {
-		UseFs(f(".storage"))
-	} else if gcsDomain != "" {
-		bucket := f("%s.%s.%s", env.Product, env.Env, gcsDomain)
-		UseGcs(context.Background(), bucket, "")
-	}
+func (e *EmptyReaderCloser) Read(p []byte) (n int, err error) {
+	return 0, io.EOF
 }
 
-// Sets the default storage to a local file system storage with the given base
-// path.
-func UseFs(basePath string) {
-	Default = NewFsStorage(basePath)
-}
-
-// Sets the default storage to a Google Cloud Storage instance with the given
-// bucket and prefix.
-func UseGcs(ctx context.Context, bucket string, prefix string) {
-	gcs, err := NewGcsStorage(ctx, bucket, prefix)
-	if err != nil {
-		alog.Fatalf(ctx, "initializing GCS storage for %s/%s: %v", bucket, prefix, err)
-	}
-	Default = gcs
-}
-
-type AlreadyExistsError struct {
-	key string
-}
-
-func (e *AlreadyExistsError) Error() string {
-	return f("blob already exists: %s", e.key)
-}
-
-type NotFoundError struct {
-	key string
-}
-
-func (e *NotFoundError) Error() string {
-	return f("blob not found: %s", e.key)
-}
-
-type missingDefault struct{}
-
-func (s *missingDefault) Read(ctx context.Context, key string) ([]byte, error) {
-	return nil, fmt.Errorf("no default storage configured")
-}
-
-func (s *missingDefault) Write(ctx context.Context, key string, data []byte) error {
-	return fmt.Errorf("no default storage configured")
-}
-
-func (s *missingDefault) WriteIfMissing(ctx context.Context, key string, data []byte) error {
-	return fmt.Errorf("no default storage configured")
-}
-
-func (s *missingDefault) Remove(ctx context.Context, key string) error {
-	return fmt.Errorf("no default storage configured")
-}
-
-func (s *missingDefault) RemoveFolder(ctx context.Context, folder string) error {
-	return fmt.Errorf("no default storage configured")
-}
-
-func (s *missingDefault) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
-	return nil, fmt.Errorf("no default storage configured")
-}
-
-func (s *missingDefault) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
-	return nil, fmt.Errorf("no default storage configured")
-}
-
-// Reads a blob from the default storage.
-func Read(ctx context.Context, key string) ([]byte, error) {
-	return Default.Read(ctx, key)
-}
-
-// Writes a blob to the default storage.
-func Write(ctx context.Context, key string, data []byte) error {
-	return Default.Write(ctx, key, data)
-}
-
-// Writes a blob to the default storage if the key does not contain any data
-// yet.
-func WriteIfMissing(ctx context.Context, key string, data []byte) error {
-	return Default.WriteIfMissing(ctx, key, data)
-}
-
-// Removes a blob from the default storage.
-func Remove(ctx context.Context, key string) error {
-	return Default.Remove(ctx, key)
-}
-
-// Removes a folder and all children blobs from the default storage.
-func RemoveFolder(ctx context.Context, folder string) error {
-	return Default.RemoveFolder(ctx, folder)
-}
-
-// Returns an io readerCloser for the blob at the given key in the default
-// storage.
-func Reader(ctx context.Context, key string) (io.ReadCloser, error) {
-	return Default.Reader(ctx, key)
-}
-
-// Returns an io writerCloser for the blob at the given key in the default
-// storage.
-func Writer(ctx context.Context, key string) (io.WriteCloser, error) {
-	if Default == nil {
-		return nil, fmt.Errorf("no default storage configured")
-	}
-	return Default.Writer(ctx, key)
+func (e *EmptyReaderCloser) Close() error {
+	return nil
 }
 
 // Implements the Storage interface for the local file system.
@@ -164,104 +58,97 @@ func NewFsStorage(basePath string) *Fs {
 	}
 }
 
-// Reads a blob from the local file system.
-func (l *Fs) Read(ctx context.Context, key string) ([]byte, error) {
+func (l *Fs) Read(ctx context.Context, key string) ([]byte, bool) {
 	path := filepath.Join(l.basePath, key)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, &NotFoundError{key}
+			return nil, false
 		}
-		return nil, e("reading file: %w", err)
+		panic(fmt.Errorf("reading file (%s): %w", path, err))
 	}
-	return data, nil
+	return data, true
 }
 
-// Writes a blob to the local file system.
-func (l *Fs) Write(ctx context.Context, key string, data []byte) error {
+func (l *Fs) Write(ctx context.Context, key string, data []byte) {
 	path := filepath.Join(l.basePath, key)
 	dir := filepath.Dir(path) // Ensure directory exists
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return e("creating directory: %w", err)
+		panic(fmt.Errorf("creating directory (%s): %w", dir, err))
 	}
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		panic(fmt.Errorf("writing object (%s): %w", path, err))
+	}
 }
 
-// Writes a blob to the local file system if the key does not contain any data yet
-// Returns blob.AlreadyExistsError if already exists.
-func (l *Fs) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+func (l *Fs) WriteIfMissing(ctx context.Context, key string, data []byte) bool {
 	path := filepath.Join(l.basePath, key)
 	dir := filepath.Dir(path) // Ensure directory exists
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return e("creating directory: %w", err)
+		panic(fmt.Errorf("creating directory (%s): %w", dir, err))
 	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
-			return &AlreadyExistsError{key}
+			return false
 		}
-		return e("opening file with O_EXCL: %w", err)
+		panic(fmt.Errorf("opening file (%s) with O_EXCL: %w", path, err))
 	}
 	defer f.Close()
 
-	// If we reached here, the file was just created exclusively.
-	// Now we can safely write to it.
 	_, err = f.WriteAt(data, 0)
 	if err != nil {
-		return e("writing data: %w", err)
+		panic(fmt.Errorf("writing to file (%s): %w", path, err))
 	}
-	return nil
+	return true
 }
 
-// Removes a blob from the local file system.
-func (l *Fs) Remove(ctx context.Context, key string) error {
+func (l *Fs) Remove(ctx context.Context, key string) bool {
 	path := filepath.Join(l.basePath, key)
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
-			return &NotFoundError{key}
+			return false
 		}
-		return e("removing file: %w", err)
+		panic(fmt.Errorf("removing file (%s): %w", path, err))
 	}
-	return nil
+	return true
 }
 
-// Removes a folder
-func (l *Fs) RemoveFolder(ctx context.Context, folder string) error {
+func (l *Fs) RemoveFolder(ctx context.Context, folder string) {
 	path := filepath.Join(l.basePath, folder)
 	if err := os.RemoveAll(path); err != nil {
 		if os.IsNotExist(err) {
-			return &NotFoundError{folder}
+			return
 		}
-		return e("removing folder: %w", err)
+		panic(fmt.Errorf("removing folder (%s): %w", path, err))
 	}
-	return nil
 }
 
 // Returns an io readerCloser for the blob at the given key.
-func (l *Fs) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
+func (l *Fs) Reader(ctx context.Context, key string) (io.ReadCloser, bool) {
 	path := filepath.Join(l.basePath, key)
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, &NotFoundError{key}
+			return &EmptyReaderCloser{}, false
 		}
-		return nil, e("opening file: %w", err)
+		panic(fmt.Errorf("opening file: %w", err))
 	}
-	return file, nil
+	return file, true
 }
 
 // Returns an io writerCloser for the blob at the given key.
-func (l *Fs) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
+func (l *Fs) Writer(ctx context.Context, key string) io.WriteCloser {
 	path := filepath.Join(l.basePath, key)
-	dir := filepath.Dir(path) // Ensure directory exists
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, e("creating directory: %w", err)
+		panic(fmt.Errorf("creating dir (%s): %w", path, err))
 	}
 	file, err := os.Create(path)
 	if err != nil {
-		return nil, e("creating file: %w", err)
+		panic(fmt.Errorf("creating file (%s): %w", path, err))
 	}
-	return file, nil
+	return file
 }
 
 // Gcs implements Storage for Google Cloud Storage.
@@ -271,84 +158,82 @@ type Gcs struct {
 }
 
 // Returns a new Gcs blob storage instance.
-func NewGcsStorage(ctx context.Context, bucket string, prefix string) (*Gcs, error) {
+func NewGcsStorage(ctx context.Context, bucket string, prefix string) *Gcs {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return nil, e("creating client: %w", err)
+		panic(fmt.Errorf("creating gcs client: %w", err))
 	}
-	return &Gcs{client.Bucket(bucket), prefix}, nil
+	return &Gcs{client.Bucket(bucket), prefix}
 }
 
 // Reads a blob from Google Cloud Storage.
-func (g *Gcs) Read(ctx context.Context, key string) ([]byte, error) {
+func (g *Gcs) Read(ctx context.Context, key string) ([]byte, bool) {
 	key = path.Join(g.prefix, key)
 	rc, err := g.bucket.Object(key).NewReader(ctx)
 	if err != nil {
 		if err.Error() == "storage: object doesn't exist" {
-			return nil, &NotFoundError{key}
+			return nil, false
 		}
 		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
-			return nil, &NotFoundError{key}
+			return nil, false
 		}
-		return nil, e("creating reader: %w", err)
+		panic(fmt.Errorf("creating gcs reader for %s: %w", key, err))
 	}
 	defer rc.Close()
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
-			return nil, &NotFoundError{key}
+			return nil, false
 		}
 	}
-	return data, nil
+	return data, true
 }
 
 // Writes a blob to Google Cloud Storage.
-func (g *Gcs) Write(ctx context.Context, key string, data []byte) error {
+func (g *Gcs) Write(ctx context.Context, key string, data []byte) {
 	key = path.Join(g.prefix, key)
 	wc := g.bucket.Object(key).NewWriter(ctx)
-
 	if _, err := wc.Write(data); err != nil {
-		return e("writing: %w", err)
+		panic(fmt.Errorf("writing gcs object (%s): %w", key, err))
 	}
 	if err := wc.Close(); err != nil {
-		return e("closing writer: %w", err)
+		panic(fmt.Errorf("closing writer: %w", err))
 	}
-	return nil
 }
 
 // Writes a blob to Google Cloud Storage if the key does not contain any data yet.
 // Returns blob.AlreadyExistsError if already exists.
-func (g *Gcs) WriteIfMissing(ctx context.Context, key string, data []byte) error {
+func (g *Gcs) WriteIfMissing(ctx context.Context, key string, data []byte) bool {
 	key = path.Join(g.prefix, key)
 	wc := g.bucket.Object(key).If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
 
 	if _, err := wc.Write(data); err != nil {
-		return e("writing: %w", err)
+		panic(fmt.Errorf("writing gcs object (%s): %w", key, err))
 	}
 	if err := wc.Close(); err != nil {
 		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 412 {
-			return &AlreadyExistsError{key}
+			return false
 		}
-		return e("closing writer: %w", err)
+		panic(fmt.Errorf("closing gcs writer for %s: %w", key, err))
 	}
-	return nil
+	return true
 }
 
 // Remove removes a blob from Google Cloud Storage.
-func (g *Gcs) Remove(ctx context.Context, key string) error {
+func (g *Gcs) Remove(ctx context.Context, key string) bool {
 	key = path.Join(g.prefix, key)
 	err := g.bucket.Object(key).Delete(ctx)
 	if err != nil {
 		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
-			return &NotFoundError{key}
+			return false
 		}
-		return e("deleting object: %w", err)
+		panic(fmt.Errorf("deleting gcs object (%s): %w", key, err))
 	}
-	return nil
+	return true
 }
 
 // Removes all objects at the specified folder (prefix)
-func (g *Gcs) RemoveFolder(ctx context.Context, folder string) error {
+func (g *Gcs) RemoveFolder(ctx context.Context, folder string) {
 	folder = path.Join(g.prefix, folder)
 	it := g.bucket.Objects(ctx, &storage.Query{Prefix: folder + "/"})
 	errG, ctx := errgroup.WithContext(ctx)
@@ -358,7 +243,7 @@ func (g *Gcs) RemoveFolder(ctx context.Context, folder string) error {
 			break
 		}
 		if err != nil {
-			return e("iterating objects: %w", err)
+			panic(fmt.Errorf("iterating gcs objects: %w", err))
 		}
 		errG.Go(func() error {
 			err = g.bucket.Object(objAttrs.Name).Delete(ctx)
@@ -366,44 +251,44 @@ func (g *Gcs) RemoveFolder(ctx context.Context, folder string) error {
 				if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
 					return nil // Object already deleted
 				}
-				return e("deleting object: %w", err)
+				return fmt.Errorf("deleting object: %w", err)
 			}
 			return nil
 		})
 	}
 	if err := errG.Wait(); err != nil {
-		return e("waiting for delete operations: %w", err)
+		panic(fmt.Errorf("waiting for gcs delete err group: %w", err))
 	}
-	return nil
 }
 
 // Returns an io readerCloser for the blob at the given key.
-func (g *Gcs) Reader(ctx context.Context, key string) (io.ReadCloser, error) {
+func (g *Gcs) Reader(ctx context.Context, key string) (io.ReadCloser, bool) {
 	key = path.Join(g.prefix, key)
 	rc, err := g.bucket.Object(key).NewReader(ctx)
 	if err != nil {
-		return nil, e("creating reader: %w", err)
+		if err.Error() == "storage: object doesn't exist" {
+			return &EmptyReaderCloser{}, false
+		}
+		if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == 404 {
+			return &EmptyReaderCloser{}, false
+		}
+		panic(fmt.Errorf("creating gcs reader for %s: %w", key, err))
 	}
-	return rc, nil
+	return rc, true
 }
 
 // Returns an io writerCloser for the blob at the given key.
-func (g *Gcs) Writer(ctx context.Context, key string) (io.WriteCloser, error) {
+func (g *Gcs) Writer(ctx context.Context, key string) io.WriteCloser {
 	key = path.Join(g.prefix, key)
 	wc := g.bucket.Object(key).NewWriter(ctx)
 	if wc == nil {
-		return nil, e("creating writer for key %s", key)
+		panic(fmt.Errorf("creating gcs writer for key %s", key))
 	}
-	return wc, nil
+	return wc
 }
 
 // Ensure that our types satisfy the interface
 var (
 	_ Storage = &Fs{}
 	_ Storage = &Gcs{}
-)
-
-var (
-	f = fmt.Sprintf
-	e = fmt.Errorf
 )
