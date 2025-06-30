@@ -24,7 +24,7 @@ func Marshal(payload any) []byte {
 }
 
 // Json encodes the payload and base64 url encodes the result.
-func MarshalB64[T any](payload T) []byte {
+func B64Marshal[T any](payload T) []byte {
 	marshalled := Marshal(payload)
 	encoded := b64.UrlEncode(marshalled)
 	return encoded

@@ -25,7 +25,7 @@ func Test_Marshal(t *testing.T) {
 }
 
 func Test_B64Marshal(t *testing.T) {
-	marshalled := jsonx.MarshalB64(payload)
+	marshalled := jsonx.B64Marshal(payload)
 	unmarshalled, err := jsonx.UnmarshalB64(marshalled, &Payload{})
 	if err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
@@ -36,7 +36,7 @@ func Test_B64Marshal(t *testing.T) {
 }
 
 func Benchmark_Marshal(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = jsonx.Marshal(payload)
 	}
 }
@@ -50,12 +50,12 @@ func Benchmark_Unmarshal(b *testing.B) {
 
 func BenchmarkB64Marshal(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = jsonx.MarshalB64(payload)
+		_ = jsonx.B64Marshal(payload)
 	}
 }
 
 func BenchmarkB64Unmarshal(b *testing.B) {
-	marshalled := jsonx.MarshalB64(payload)
+	marshalled := jsonx.B64Marshal(payload)
 	for i := 0; i < b.N; i++ {
 		_, _ = jsonx.UnmarshalB64(marshalled, &Payload{})
 	}
