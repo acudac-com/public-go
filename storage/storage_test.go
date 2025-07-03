@@ -1,7 +1,6 @@
 package storage_test
 
 import (
-	"context"
 	"os"
 	"reflect"
 	"testing"
@@ -11,7 +10,7 @@ import (
 
 // var Storage = storage.NewFsStorage(".storage")
 
-var Storage = storage.NewGcsStorage(context.Background(), os.Getenv("GCS_BUCKET"), "public-go/storage")
+var Storage = storage.NewGcsStorage(os.Getenv("GCS_BUCKET"), "public-go/storage")
 
 func Test_ReadWrite(t *testing.T) {
 	defer Storage.RemoveFolder(t.Context(), "")

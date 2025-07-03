@@ -11,14 +11,6 @@ import (
 	"github.com/acudac-com/public-go/storage"
 )
 
-type Configs struct {
-	storage storage.Storage
-}
-
-func New(storage storage.Storage) *Configs {
-	return &Configs{storage}
-}
-
 // Returns the blob key of the specified version and variation's config.
 func key(version string, variation string) string {
 	obj := fmt.Sprintf(".config/%s.cfg", version)
@@ -30,28 +22,29 @@ func key(version string, variation string) string {
 
 // Uses CONFIG_VERSION and CONFIG_VARIATION environment variables to load the
 // config. Loads nothing if version is empty.
-func (c *Configs) Load(config any) {
+func Load[T any](storage storage.Storage, config T) T {
 	Variation := os.Getenv("CONFIG_VARIATION")
 	Version := os.Getenv("CONFIG_VERSION")
 	if Version == "" {
 		slog.Warn("no config version specified in CONFIG_VERSION env so loaded config will be empty")
-		return
+		return config
 	}
 
 	ctx := context.Background()
 	key := key(Version, Variation)
-	reader, found := c.storage.Reader(ctx, key)
+	reader, found := storage.Reader(ctx, key)
 	if !found {
 		panic(fmt.Errorf("configs.Configs.Load(): config not found for version %q and variation %q", Version, Variation))
 	}
 	if err := json.NewDecoder(reader).Decode(config); err != nil {
 		panic(fmt.Errorf("configs.Config.Load() decoding config: %w", err))
 	}
+	return config
 }
 
 // Uploads the config alog with the specified variations to a new version and
 // returns the version.
-func (c *Configs) Upload(config any, variations map[string]any) string {
+func Upload(storage storage.Storage, config any, variations map[string]any) string {
 	ctx := context.Background()
 	version := time.Now().UTC().Format("2006-01-02_15-04-05")
 	configs := variations
@@ -61,7 +54,7 @@ func (c *Configs) Upload(config any, variations map[string]any) string {
 	configs[""] = config
 	for variation, conf := range configs {
 		key := key(version, variation)
-		writer := c.storage.Writer(ctx, key)
+		writer := storage.Writer(ctx, key)
 		if err := json.NewEncoder(writer).Encode(conf); err != nil {
 			panic(fmt.Errorf("configs.Configs.Upload(): encoding config: %w", err))
 		}

@@ -158,8 +158,8 @@ type Gcs struct {
 }
 
 // Returns a new Gcs blob storage instance.
-func NewGcsStorage(ctx context.Context, bucket string, prefix string) *Gcs {
-	client, err := storage.NewClient(ctx)
+func NewGcsStorage(bucket string, prefix string) *Gcs {
+	client, err := storage.NewClient(context.Background())
 	if err != nil {
 		panic(fmt.Errorf("creating gcs client: %w", err))
 	}

@@ -3,6 +3,7 @@ package sqlx
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -75,7 +76,7 @@ func (d *Db) Insert(ctx context.Context, r Record) error {
 
 // Gets the given record from the specified table. Only uses the primary key
 // fields to build the needed query.
-func (d *Db) Get(ctx context.Context, r Record) error {
+func (d *Db) Get(ctx context.Context, r Record, columns ...string) error {
 	tbl, fields, _ := r.Info()
 	fieldL := len(fields)
 	if fieldL == 0 {
@@ -92,6 +93,9 @@ func (d *Db) Get(ctx context.Context, r Record) error {
 			conditions = append(conditions, field.Name()+" = ?")
 			args = append(args, field.Value())
 		} else {
+			if columns != nil && !slices.Contains(columns, field.Name()) {
+				continue
+			}
 			cols = append(cols, field.Name())
 			destinations = append(destinations, field.Pointer())
 		}
