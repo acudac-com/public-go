@@ -11,34 +11,42 @@ type (
 		gateway Gateway[CxT]
 	}
 	Handler[CxT context.Context] func(cx CxT, w http.ResponseWriter, r *http.Request) error
-	Gateway[CxT context.Context] func(w http.ResponseWriter, r *http.Request, handler Handler[CxT], mw ...Handler[CxT]) error
+	Gateway[CxT context.Context] func(w http.ResponseWriter, r *http.Request, handler Handler[CxT], mw ...*Middleware[CxT]) error
 )
+
+// Runs just before and just after a main handler to insert common handling logic.
+type Middleware[CxT context.Context] struct {
+	// Optional handler to call before the main handler starts
+	Prep Handler[CxT]
+	// Optional handler to call after the main handler finished
+	Process Handler[CxT]
+}
 
 func New[CxT context.Context](gateway Gateway[CxT]) *Mux[CxT] {
 	return &Mux[CxT]{http.NewServeMux(), gateway}
 }
 
-func (m *Mux[CxT]) Get(pattern string, handleFunc Handler[CxT], middleware ...Handler[CxT]) {
+func (m *Mux[CxT]) Get(pattern string, handleFunc Handler[CxT], middleware ...*Middleware[CxT]) {
 	m.mux.HandleFunc("GET "+pattern, m.handler(handleFunc, middleware))
 }
 
-func (m *Mux[CxT]) Post(pattern string, handleFunc Handler[CxT], middleware ...Handler[CxT]) {
+func (m *Mux[CxT]) Post(pattern string, handleFunc Handler[CxT], middleware ...*Middleware[CxT]) {
 	m.mux.HandleFunc("POST "+pattern, m.handler(handleFunc, middleware))
 }
 
-func (m *Mux[CxT]) Patch(pattern string, handleFunc Handler[CxT], middleware ...Handler[CxT]) {
+func (m *Mux[CxT]) Patch(pattern string, handleFunc Handler[CxT], middleware ...*Middleware[CxT]) {
 	m.mux.HandleFunc("PATCH "+pattern, m.handler(handleFunc, middleware))
 }
 
-func (m *Mux[CxT]) Put(pattern string, handleFunc Handler[CxT], middleware ...Handler[CxT]) {
+func (m *Mux[CxT]) Put(pattern string, handleFunc Handler[CxT], middleware ...*Middleware[CxT]) {
 	m.mux.HandleFunc("PUT "+pattern, m.handler(handleFunc, middleware))
 }
 
-func (m *Mux[CxT]) Delete(pattern string, handleFunc Handler[CxT], middleware ...Handler[CxT]) {
+func (m *Mux[CxT]) Delete(pattern string, handleFunc Handler[CxT], middleware ...*Middleware[CxT]) {
 	m.mux.HandleFunc("DELETE "+pattern, m.handler(handleFunc, middleware))
 }
 
-func (m *Mux[CxT]) handler(handleFunc Handler[CxT], middleware []Handler[CxT]) func(w http.ResponseWriter, r *http.Request) {
+func (m *Mux[CxT]) handler(handleFunc Handler[CxT], middleware []*Middleware[CxT]) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := m.gateway(w, r, handleFunc, middleware...); err != nil {
 			if httpErr, ok := err.(*Error); ok {
