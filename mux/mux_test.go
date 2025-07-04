@@ -2,13 +2,13 @@ package mux_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"testing"
 	"time"
 
-	"github.com/acudac-com/public-go/glog"
 	"github.com/acudac-com/public-go/mux"
 	"github.com/acudac-com/public-go/timex"
 )
@@ -40,8 +40,8 @@ type requester struct {
 
 type Cx struct {
 	context.Context
-	requester *requester
-	requestId string
+	requester  *requester
+	Authorized bool
 }
 
 func (c *Cx) StartTime() time.Time {
@@ -96,15 +96,14 @@ func (c *Cx) ClearRequester() {
 }
 
 func TestHandle(t *testing.T) {
-	slog.SetDefault(slog.New(glog.NewSlogHandler(slog.LevelDebug)))
-	mux := mux.New(middleware)
-	mux.Get("/hello", hello)
-	mux.Get("/missing", missing)
-	mux.Get("/nilptr", nilptr)
-	mux.ListenAndServe(":8080")
+	m := mux.New(gateway)
+	m.Get("/hello", hello, authMiddleware)
+	m.Get("/missing", missing, unauthMiddleware, authMiddleware)
+	m.Get("/nilptr", nilptr, authMiddleware)
+	m.ListenAndServe(":8080")
 }
 
-func middleware(w http.ResponseWriter, r *http.Request, handler func(cx *Cx, w http.ResponseWriter, r *http.Request) error) (err error) {
+func gateway(w http.ResponseWriter, r *http.Request, handler mux.Handler[*Cx], middleware ...mux.Handler[*Cx]) (err error) {
 	cx := &Cx{requester: &requester{User: &User{Id: "12345"}}}
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -112,9 +111,32 @@ func middleware(w http.ResponseWriter, r *http.Request, handler func(cx *Cx, w h
 			err = mux.InternalServerErr("Internal server error")
 		}
 	}()
+	for _, mw := range middleware {
+		if err = mw(cx, w, r); err != nil {
+			return err
+		}
+	}
+	if !cx.Authorized {
+		if r.Method == http.MethodGet {
+			http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		} else {
+			return mux.ForbiddenErr(fmt.Sprintf("missing necessary permissions for %s %s", r.Method, r.URL.Path))
+		}
+		return
+	}
 	err = handler(cx, w, r)
 	slog.Info("", "method", r.Method)
-	return
+	return err
+}
+
+func authMiddleware(cx *Cx, w http.ResponseWriter, r *http.Request) error {
+	cx.Authorized = true
+	return nil
+}
+
+func unauthMiddleware(cx *Cx, w http.ResponseWriter, r *http.Request) error {
+	cx.Authorized = false
+	return nil
 }
 
 func hello(cx *Cx, w http.ResponseWriter, r *http.Request) error {
@@ -126,9 +148,9 @@ func missing(cx *Cx, w http.ResponseWriter, r *http.Request) error {
 	return mux.NotFoundErr("not here")
 }
 
+var t *time.Time
+
 func nilptr(cx *Cx, w http.ResponseWriter, r *http.Request) error {
-	var p *string
-	*p = "hi"
-	w.Write([]byte(*p))
+	w.Write([]byte(t.Format("2006-01-02 15:04:05")))
 	return nil
 }
