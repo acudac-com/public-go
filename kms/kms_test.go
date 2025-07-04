@@ -12,7 +12,7 @@ var kms *Kms
 
 func init() {
 	storage := storage.NewFsStorage("")
-	kms = NewKms(storage, nil)
+	kms = New(storage, nil)
 }
 
 func BenchmarkKeyId(b *testing.B) {

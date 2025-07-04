@@ -37,7 +37,7 @@ type Opts struct {
 }
 
 // Opts may be empty
-func NewKms(storage storage.Storage, opts *Opts) *Kms {
+func New(storage storage.Storage, opts *Opts) *Kms {
 	if opts == nil {
 		opts = &Opts{}
 	}
