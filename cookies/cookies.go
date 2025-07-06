@@ -67,11 +67,6 @@ func NewJson[T any](name, path string, maxAge int, opts *Opts) *JsonCookie[T] {
 	return &JsonCookie[T]{c}
 }
 
-type JsonEncryptedCookie[T any] struct {
-	*Cookie
-	kms *kms.Kms
-}
-
 func (c *JsonCookie[T]) Read(ctx context.Context, r *http.Request, value T) T {
 	cookie, err := r.Cookie(c.name)
 	if err == nil && cookie.Value != "" {
@@ -87,22 +82,52 @@ func (c *JsonCookie[T]) Set(ctx context.Context, w http.ResponseWriter, value T)
 	c.set(w, string(marshalledValue), c.maxAge)
 }
 
-func NewJsonEncrypted[T any](name, path string, maxAge int, kms *kms.Kms, opts *Opts) *JsonEncryptedCookie[T] {
-	c := New(name, path, maxAge, opts)
-	return &JsonEncryptedCookie[T]{c, kms}
+type EncryptedJson[T any] struct {
+	*Cookie
+	kms *kms.Kms
 }
 
-func (c *JsonEncryptedCookie[T]) Read(ctx context.Context, r *http.Request, value T) T {
+func NewJsonEncrypted[T any](name, path string, maxAge int, kms *kms.Kms, opts *Opts) *EncryptedJson[T] {
+	c := New(name, path, maxAge, opts)
+	return &EncryptedJson[T]{c, kms}
+}
+
+func (c *EncryptedJson[T]) Read(ctx context.Context, r *http.Request, value T) T {
 	cookie, err := r.Cookie(c.name)
 	if err == nil && cookie.Value != "" {
 		if err := c.kms.JsonDecryptB64(ctx, []byte(cookie.Value), value); err != nil {
-			slog.WarnContext(ctx, "decrypting cookie", "name", c.name, "value", cookie.Value)
+			slog.WarnContext(ctx, "decrypting json cookie", "name", c.name, "value", cookie.Value)
 		}
 	}
 	return value
 }
 
-func (c *JsonEncryptedCookie[T]) Set(ctx context.Context, w http.ResponseWriter, value T) {
+func (c *EncryptedJson[T]) Set(ctx context.Context, w http.ResponseWriter, value T) {
 	encryptedValue := c.kms.B64EncryptJson(ctx, value)
+	c.set(w, string(encryptedValue), c.maxAge)
+}
+
+type HashedJsonCookie[T any] struct {
+	*Cookie
+	kms *kms.Kms
+}
+
+func NewHashedJson[T any](name, path string, maxAge int, kms *kms.Kms, opts *Opts) *HashedJsonCookie[T] {
+	c := New(name, path, maxAge, opts)
+	return &HashedJsonCookie[T]{c, kms}
+}
+
+func (c *HashedJsonCookie[T]) Read(ctx context.Context, r *http.Request, value T) T {
+	cookie, err := r.Cookie(c.name)
+	if err == nil && cookie.Value != "" {
+		if err := c.kms.JsonUnhashB64(ctx, []byte(cookie.Value), value); err != nil {
+			slog.WarnContext(ctx, "unhashing json cookie", "name", c.name, "value", cookie.Value)
+		}
+	}
+	return value
+}
+
+func (c *HashedJsonCookie[T]) Set(ctx context.Context, w http.ResponseWriter, value T) {
+	encryptedValue := c.kms.B64HashJson(ctx, value)
 	c.set(w, string(encryptedValue), c.maxAge)
 }
