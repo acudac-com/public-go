@@ -16,6 +16,7 @@ const CtxKey ctxKey = "glog"
 type ctxVal struct {
 	requestId string
 	trace     string
+	args      []any
 }
 
 type SlogHandler struct {
@@ -25,11 +26,11 @@ type SlogHandler struct {
 // Adds request id to ctx so all logs will have "requestId" in their json payload.
 // Extracts the "X-Cloud-Trace-Context" header from the request and adds it to
 // the request's ctx.
-func NewCtx(requestId string, projectId string, r *http.Request) context.Context {
+func NewCtx(requestId string, projectId string, r *http.Request, args ...any) context.Context {
 	traceHeader := r.Header.Get("X-Cloud-Trace-Context")
 	traceParts := strings.Split(traceHeader, "/")
 	var ctx = r.Context()
-	ctxVal := &ctxVal{requestId, ""}
+	ctxVal := &ctxVal{requestId, "", args}
 	if len(traceParts) > 0 && len(traceParts[0]) > 0 {
 		ctxVal.trace = fmt.Sprintf("projects/%s/traces/%s", projectId, traceParts[0])
 	}
@@ -62,6 +63,7 @@ func (h *SlogHandler) Handle(ctx context.Context, rec slog.Record) error {
 	if val != nil {
 		ctxVal := val.(*ctxVal)
 		rec.Add("requestId", ctxVal.requestId)
+		rec.Add(ctxVal.args...)
 		if ctxVal.trace != "" {
 			rec.Add("logging.googleapis.com/trace", ctxVal.trace)
 		}

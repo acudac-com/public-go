@@ -15,7 +15,7 @@ func init() {
 
 func TestAny(t *testing.T) {
 	r, _ := http.NewRequest("GET", "/", nil)
-	ctx := glog.NewCtx("someid", "someproj", r)
+	ctx := glog.NewCtx("someid", "someproj", r, "userId", "12345", "accountType", 5)
 	type SomeStruct struct {
 		Id  string `json:"id"`
 		Age int32  `json:"age"`
