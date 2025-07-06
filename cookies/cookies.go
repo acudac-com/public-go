@@ -14,7 +14,11 @@ func New(name, path string, secure, httpOnly bool, sameSite http.SameSite) *Cook
 	return &Cookie{name, path, secure, httpOnly, sameSite}
 }
 
-func (c *Cookie) Clear(w http.ResponseWriter, value string, maxAge int) {
+func (c *Cookie) Name() string {
+	return c.name
+}
+
+func (c *Cookie) Clear(w http.ResponseWriter) {
 	c.Set(w, "", -1)
 }
 
