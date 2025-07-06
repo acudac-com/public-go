@@ -10,7 +10,7 @@ type (
 		mux     *http.ServeMux
 		gateway Gateway[CxT, OptsT]
 	}
-	Handler[CxT context.Context, OptsT any] func(cx CxT, w http.ResponseWriter, r *http.Request, opts OptsT) error
+	Handler[CxT context.Context, OptsT any] func(cx CxT, w http.ResponseWriter, r *http.Request) error
 	Gateway[CxT context.Context, OptsT any] func(w http.ResponseWriter, r *http.Request, handler Handler[CxT, OptsT], opts OptsT) error
 )
 
