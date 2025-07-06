@@ -2,6 +2,7 @@ package glog_test
 
 import (
 	"log/slog"
+	"net/http"
 	"testing"
 
 	"github.com/acudac-com/public-go/glog"
@@ -13,10 +14,12 @@ func init() {
 }
 
 func TestAny(t *testing.T) {
+	r, _ := http.NewRequest("GET", "/", nil)
+	ctx := glog.NewCtx("someid", "someproj", r)
 	type SomeStruct struct {
 		Id  string `json:"id"`
 		Age int32  `json:"age"`
 	}
 	ss := &SomeStruct{"asdf", 32}
-	slog.Info("testing", "stringval", "asdf", "intval", 35, slog.Any("some struct", ss))
+	slog.InfoContext(ctx, "testing", "stringval", "asdf", "intval", 35, slog.Any("some struct", ss))
 }

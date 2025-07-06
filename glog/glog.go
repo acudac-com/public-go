@@ -9,12 +9,32 @@ import (
 	"strings"
 )
 
-type CtxKey string
+type ctxKey string
 
-const TraceCtxKey CtxKey = "trace"
+const CtxKey ctxKey = "glog"
+
+type ctxVal struct {
+	requestId string
+	trace     string
+}
 
 type SlogHandler struct {
 	slog.Handler
+}
+
+// Adds request id to ctx so all logs will have "requestId" in their json payload.
+// Extracts the "X-Cloud-Trace-Context" header from the request and adds it to
+// the request's ctx.
+func NewCtx(requestId string, projectId string, r *http.Request) context.Context {
+	traceHeader := r.Header.Get("X-Cloud-Trace-Context")
+	traceParts := strings.Split(traceHeader, "/")
+	var ctx = r.Context()
+	ctxVal := &ctxVal{requestId, ""}
+	if len(traceParts) > 0 && len(traceParts[0]) > 0 {
+		ctxVal.trace = fmt.Sprintf("projects/%s/traces/%s", projectId, traceParts[0])
+	}
+	ctx = context.WithValue(ctx, CtxKey, ctxVal)
+	return ctx
 }
 
 func NewSlogHandler(level slog.Level) *SlogHandler {
@@ -38,29 +58,13 @@ func NewSlogHandler(level slog.Level) *SlogHandler {
 }
 
 func (h *SlogHandler) Handle(ctx context.Context, rec slog.Record) error {
-	var trace string
-	traceVal := ctx.Value(TraceCtxKey)
-	if traceVal != nil {
-		trace = traceVal.(string)
-	}
-	if trace != "" {
-		rec = rec.Clone()
-		// Add trace ID	to the record so it is correlated with the Cloud Run request log
-		// See https://cloud.google.com/trace/docs/trace-log-integration
-		rec.Add("logging.googleapis.com/trace", slog.StringValue(trace))
+	val := ctx.Value(CtxKey)
+	if val != nil {
+		ctxVal := val.(*ctxVal)
+		rec.Add("requestId", ctxVal.requestId)
+		if ctxVal.trace != "" {
+			rec.Add("logging.googleapis.com/trace", ctxVal.trace)
+		}
 	}
 	return h.Handler.Handle(ctx, rec)
-}
-
-// Middleware that adds the Cloud Trace ID to the context
-// This is used to correlate the structured logs with the Cloud Run
-// request log.
-func WithCloudTraceContext(projectId string, r *http.Request) {
-	var trace string
-	traceHeader := r.Header.Get("X-Cloud-Trace-Context")
-	traceParts := strings.Split(traceHeader, "/")
-	if len(traceParts) > 0 && len(traceParts[0]) > 0 {
-		trace = fmt.Sprintf("projects/%s/traces/%s", projectId, traceParts[0])
-	}
-	*r = *r.WithContext(context.WithValue(r.Context(), TraceCtxKey, trace))
 }
