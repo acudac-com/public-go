@@ -3,11 +3,15 @@ package cookies
 import "net/http"
 
 type Cookie struct {
-	Name     string
-	Path     string
-	Secure   bool
-	HttpOnly bool
-	SameSite http.SameSite
+	name     string
+	path     string
+	secure   bool
+	httpOnly bool
+	sameSite http.SameSite
+}
+
+func New(name, path string, secure, httpOnly bool, sameSite http.SameSite) *Cookie {
+	return &Cookie{name, path, secure, httpOnly, sameSite}
 }
 
 func (c *Cookie) Clear(w http.ResponseWriter, value string, maxAge int) {
@@ -16,12 +20,12 @@ func (c *Cookie) Clear(w http.ResponseWriter, value string, maxAge int) {
 
 func (c *Cookie) Set(w http.ResponseWriter, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     c.Name,
+		Name:     c.name,
 		Value:    value,
-		Path:     c.Path,
+		Path:     c.path,
 		MaxAge:   maxAge,
-		Secure:   c.Secure,
-		HttpOnly: c.HttpOnly,
+		Secure:   c.secure,
+		HttpOnly: c.httpOnly,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
