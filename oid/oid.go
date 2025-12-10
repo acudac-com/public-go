@@ -16,37 +16,63 @@ import (
 	"github.com/acudac-com/public-go/rest"
 )
 
-// Issuer is an OIDC issuer, like Acudac Identity
-type Issuer struct {
-	URL                   string    // e.g. https://identity.acudac.com
-	JwksURL               string    // e.g. https://identity.acudac.com/.well-known/jwks.json
-	TokensURL             string    // e.g. https://identity.acudac.com/token
-	Clients               []*Client // at least one client that was created at the issuer
+// Client is a client of an OIDC issuer like Acudac Identity
+type Client struct {
+	IssuerURL             string // e.g. https://identity.acudac.com
+	JwksURL               string // e.g. https://identity.acudac.com/.well-known/jwks.json
+	TokensURL             string // e.g. https://identity.acudac.com/token
+	ID                    string
+	Secret                string
 	pubicKeys             map[string]*ed25519.PublicKey
 	publicKeysMu          *sync.RWMutex
 	publicKeysLastFetched time.Time
 }
 
-// Client is an OIDC client created at an OIDC issuer.
-type Client struct {
-	ID     string
-	Secret string
-	issuer *Issuer
+// NewClient returns a new client for the given issuer URL, client ID, and client secret.
+// By default JwksURL is set to the issuer URL with /.well-known/jwks.json appended.
+// By default TokensURL is set to the issuer URL with /token appended.
+func NewClient(issuerURL, id, secret string) *Client {
+	return &Client{
+		IssuerURL: issuerURL,
+		JwksURL:   issuerURL + "/.well-known/jwks.json",
+		TokensURL: issuerURL + "/token",
+		ID:        id,
+		Secret:    secret,
+	}
+}
+
+// Tokens is a set of tokens returned from an issuer's token endpoint
+type Tokens struct {
+	AccessToken  string `json:"access_token,omitempty"`
+	IDToken      string `json:"id_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// ExchangeCode exchanges the given code for tokens.
+func (c *Client) ExchangeCode(code *string, redirectURL *string) (*Tokens, error) {
+	restClient := rest.NewClient(http.DefaultClient, c.TokensURL)
+	form := url.Values{
+		"client_id":     {c.ID},
+		"grant_type":    {"authorization_code"},
+		"code":          {*code},
+		"redirect_url":  {*redirectURL},
+		"client_secret": {c.Secret},
+	}
+	tokens := &Tokens{}
+	if err := restClient.PostForm("", form, tokens); err != nil {
+		return nil, err
+	}
+	return tokens, nil
 }
 
 // Refresh refreshes the tokens with the given refresh token.
 func (c *Client) Refresh(refreshToken *string, idToken *string) error {
-	restClient := rest.NewClient(http.DefaultClient, c.issuer.TokensURL)
+	restClient := rest.NewClient(http.DefaultClient, c.TokensURL)
 	form := url.Values{
 		"client_id":     {c.ID},
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {*refreshToken},
 		"client_secret": {c.Secret},
-	}
-	type Tokens struct {
-		AccessToken  string `json:"access_token"`
-		IDToken      string `json:"id_token"`
-		RefreshToken string `json:"refresh_token"`
 	}
 	tokens := &Tokens{}
 	if err := restClient.PostForm("", form, tokens); err != nil {
@@ -57,37 +83,28 @@ func (c *Client) Refresh(refreshToken *string, idToken *string) error {
 	return nil
 }
 
-var issuers = map[string]*Issuer{}
+var clients = map[string]*Client{}
 
-// AddIssuer adds the given issuer. Not concurrency proof so use in only one init function.
-func AddIssuer(issuer *Issuer) error {
-	if issuer.URL == "" {
+// AddClient adds the given client so that the [Authenticate] function can use it.
+// Not concurrency proof so use in only one init function.
+func AddClient(client *Client) error {
+	if client.IssuerURL == "" {
 		return fmt.Errorf("issuer.URL cannot be empty")
 	}
-	if issuer.JwksURL == "" {
+	if client.JwksURL == "" {
 		return fmt.Errorf("issuer.JwksURL cannot be empty")
 	}
-	if len(issuer.Clients) == 0 {
-		return fmt.Errorf("issuer.Clients cannot be empty")
+	if client.ID == "" {
+		return fmt.Errorf("issuer.ID cannot be empty")
 	}
-
-	// validate clients and add issuer to each
-	for i, client := range issuer.Clients {
-		if client.ID == "" {
-			return fmt.Errorf("issuer.Clients[%d].ID cannot be empty", i)
-		}
-		if client.Secret == "" {
-			return fmt.Errorf("issuer.Clients[%d].Secret cannot be empty", i)
-		}
-		client.issuer = issuer
-	}
+	// issuer secret is optional
 
 	// setup private vars
-	issuer.publicKeysMu = &sync.RWMutex{}
-	issuer.pubicKeys = map[string]*ed25519.PublicKey{}
+	client.publicKeysMu = &sync.RWMutex{}
+	client.pubicKeys = map[string]*ed25519.PublicKey{}
 
 	// add to global list of issuers
-	issuers[issuer.URL] = issuer
+	clients[client.IssuerURL] = client
 	return nil
 }
 
@@ -122,15 +139,9 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 	}
 
 	// find issuer
-	issuer, ok := issuers[jwt.Identity.Iss]
+	issuer, ok := clients[jwt.Identity.Iss]
 	if !ok {
 		return nil, fmt.Errorf("%s is not an accepted id token issuer", jwt.Identity.Iss)
-	}
-
-	// find client with same id as the ID token audience
-	client, err := issuer.Client(jwt.Identity.Aud)
-	if err != nil {
-		return nil, err
 	}
 
 	// try to refresh id token if expired
@@ -138,7 +149,7 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 		if refreshToken == nil || issuer.TokensURL == "" {
 			return nil, fmt.Errorf("id token expired but no refresh token provided")
 		}
-		if err := client.Refresh(refreshToken, idToken); err != nil {
+		if err := issuer.Refresh(refreshToken, idToken); err != nil {
 			return nil, fmt.Errorf("refreshing tokens: %v", err)
 		}
 
@@ -232,23 +243,8 @@ func unmarshalB64(value string, obj any) error {
 	return nil
 }
 
-// Client returns the client with the given id
-func (i *Issuer) Client(id string) (*Client, error) {
-	var client *Client
-	for _, issuerClient := range i.Clients {
-		if issuerClient.ID == id {
-			client = issuerClient
-			break
-		}
-	}
-	if client == nil {
-		return nil, fmt.Errorf("no client with id=%s", id)
-	}
-	return client, nil
-}
-
-func (i *Issuer) ValidateSignature(kid string, signingInput string, signature string) error {
-	publicKey, err := i.PublicKey(time.Now(), kid)
+func (c *Client) ValidateSignature(kid string, signingInput string, signature string) error {
+	publicKey, err := c.PublicKey(time.Now(), kid)
 	if err != nil {
 		return err
 	}
@@ -267,23 +263,23 @@ func (i *Issuer) ValidateSignature(kid string, signingInput string, signature st
 
 // PublicKey returns the public key with the given id.
 // It refreshes the list of public keys from the issuer's JWKS url every hour.
-func (i *Issuer) PublicKey(now time.Time, kid string) (*ed25519.PublicKey, error) {
+func (c *Client) PublicKey(now time.Time, kid string) (*ed25519.PublicKey, error) {
 	// if fetched less than an hour aga, read from cache
-	if i.publicKeysLastFetched.Add(1 * time.Hour).After(now) {
-		return i.publicKeyFromCache(kid)
+	if c.publicKeysLastFetched.Add(1 * time.Hour).After(now) {
+		return c.publicKeyFromCache(kid)
 	}
 
 	// lock and defer unlock
-	i.publicKeysMu.Lock()
-	defer i.publicKeysMu.Unlock()
+	c.publicKeysMu.Lock()
+	defer c.publicKeysMu.Unlock()
 
 	// check last fetched time again incase it has been updated while waiting for lock
-	if i.publicKeysLastFetched.Add(1 * time.Hour).After(now) {
-		return i.publicKeyFromCache(kid)
+	if c.publicKeysLastFetched.Add(1 * time.Hour).After(now) {
+		return c.publicKeyFromCache(kid)
 	}
 
 	// fetch jwks
-	jwks, err := i.Jwks()
+	jwks, err := c.Jwks()
 	if err != nil {
 		return nil, err
 	}
@@ -295,13 +291,13 @@ func (i *Issuer) PublicKey(now time.Time, kid string) (*ed25519.PublicKey, error
 	}
 
 	// save to cache and return requested public key from cache
-	i.pubicKeys = publicKeys
-	i.publicKeysLastFetched = now
-	return i.publicKeyFromCache(kid)
+	c.pubicKeys = publicKeys
+	c.publicKeysLastFetched = now
+	return c.publicKeyFromCache(kid)
 }
 
-func (i *Issuer) publicKeyFromCache(kid string) (*ed25519.PublicKey, error) {
-	if publicKey, ok := i.pubicKeys[kid]; ok {
+func (c *Client) publicKeyFromCache(kid string) (*ed25519.PublicKey, error) {
+	if publicKey, ok := c.pubicKeys[kid]; ok {
 		return publicKey, nil
 	}
 	return nil, fmt.Errorf("no public key found with kid=%s", kid)
@@ -320,11 +316,11 @@ type JWK struct {
 }
 
 // Jwks fetches the issuer's JWKS from its JWKS url.
-func (i *Issuer) Jwks() (*JWKS, error) {
-	restClient := rest.NewClient(http.DefaultClient, i.JwksURL)
+func (c *Client) Jwks() (*JWKS, error) {
+	restClient := rest.NewClient(http.DefaultClient, c.JwksURL)
 	jwks := &JWKS{}
 	if err := restClient.Get("", jwks); err != nil {
-		return nil, fmt.Errorf("fetching JWKS from %s: %w", i.JwksURL, err)
+		return nil, fmt.Errorf("fetching JWKS from %s: %w", c.JwksURL, err)
 	}
 	return jwks, nil
 }
