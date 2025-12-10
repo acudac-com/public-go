@@ -115,6 +115,66 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 		return nil, fmt.Errorf("id token cannot be nil")
 	}
 
+	// parse jwt
+	jwt, err := ParseJWT(idToken)
+	if err != nil {
+		return nil, err
+	}
+
+	// find issuer
+	issuer, ok := issuers[jwt.Identity.Iss]
+	if !ok {
+		return nil, fmt.Errorf("%s is not an accepted id token issuer", jwt.Identity.Iss)
+	}
+
+	// find client with same id as the ID token audience
+	client, err := issuer.Client(jwt.Identity.Aud)
+	if err != nil {
+		return nil, err
+	}
+
+	// try to refresh id token if expired
+	if time.Unix(jwt.Identity.Exp, 0).Before(now) {
+		if refreshToken == nil || issuer.TokensURL == "" {
+			return nil, fmt.Errorf("id token expired but no refresh token provided")
+		}
+		if err := client.Refresh(refreshToken, idToken); err != nil {
+			return nil, fmt.Errorf("refreshing tokens: %v", err)
+		}
+
+		// re-parse jwt, since idToken has been refreshed
+		jwt, err = ParseJWT(idToken)
+		if err != nil {
+			return nil, err
+		}
+		jwt.Identity.refreshed = true
+	}
+
+	// validate the signature
+	if err := issuer.ValidateSignature(jwt.Header.Kid, jwt.SignedString, jwt.Signature); err != nil {
+		return nil, err
+	}
+
+	return jwt.Identity, nil
+}
+
+// JWT is a parsed JWT
+type JWT struct {
+	Header       *Header
+	Identity     *Identity
+	SignedString string
+	Signature    string
+}
+
+// Header is a JWT header
+type Header struct {
+	Kid string // e.g. 194md12x
+	Alg string // e.g. EdDSA
+	Typ string // must be JWT
+}
+
+// ParseJWT parses the given id token into its header, body and signature.
+func ParseJWT(idToken *string) (*JWT, error) {
 	// split id token into header, body and signature
 	idTokenParts := strings.Split(*idToken, ".")
 	if len(idTokenParts) != 3 {
@@ -123,11 +183,6 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 	headerString, body, signature := idTokenParts[0], idTokenParts[1], idTokenParts[2]
 
 	// parse and validate header
-	type Header struct {
-		Kid string // e.g. 194md12x
-		Alg string // e.g. EdDSA
-		Typ string // must be JWT
-	}
 	header := &Header{}
 	if err := unmarshalB64(headerString, header); err != nil {
 		return nil, fmt.Errorf("parsing header: %w", err)
@@ -145,7 +200,7 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 		return nil, fmt.Errorf("parsing header: %w", err)
 	}
 
-	// fail if id token is invalid
+	// validate issuer and audience
 	if identity.Iss == "" {
 		return nil, fmt.Errorf("id token missing 'iss'")
 	}
@@ -153,35 +208,13 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 		return nil, fmt.Errorf("id token missing 'aud'")
 	}
 
-	// find issuer
-	issuer, ok := issuers[identity.Iss]
-	if !ok {
-		return nil, fmt.Errorf("%s is not an accepted id token issuer", identity.Iss)
-	}
-
-	// find client with same id as the ID token audience
-	client, err := issuer.Client(identity.Aud)
-	if err != nil {
-		return nil, err
-	}
-
-	// try to refresh id token if expired
-	if time.Unix(identity.Exp, 0).Before(now) {
-		if refreshToken == nil || issuer.TokensURL == "" {
-			return nil, fmt.Errorf("id token expired but no refresh token provided")
-		}
-		if err := client.Refresh(refreshToken, idToken); err != nil {
-			return nil, fmt.Errorf("refreshing tokens: %v", err)
-		}
-		identity.refreshed = true
-	}
-
-	// validate the signature
-	if err := issuer.ValidateSignature(header.Kid, headerString+"."+body, signature); err != nil {
-		return nil, err
-	}
-
-	return identity, nil
+	// return jwt
+	return &JWT{
+		Header:       header,
+		Identity:     identity,
+		SignedString: headerString + "." + body,
+		Signature:    signature,
+	}, nil
 }
 
 // unmarshalB64 first base64 decodes the url encoded string, then JSON unmarshals the decoded bytes into the given obj.
@@ -231,8 +264,6 @@ func (i *Issuer) ValidateSignature(kid string, signingInput string, signature st
 	}
 	return nil
 }
-
-// Refresh the tokens with the given refresh token
 
 // PublicKey returns the public key with the given id.
 // It refreshes the list of public keys from the issuer's JWKS url every hour.
