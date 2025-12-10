@@ -223,6 +223,9 @@ func (i *Issuer) ValidateSignature(kid string, signingInput string, signature st
 	if err != nil {
 		return fmt.Errorf("base64 decoding signature: %w", err)
 	}
+	if len(decodedSignature) != ed25519.SignatureSize {
+		return fmt.Errorf("invalid signature length: expected %d, got %d", ed25519.SignatureSize, len(decodedSignature))
+	}
 	if !ed25519.Verify(*publicKey, []byte(signingInput), decodedSignature) {
 		return errors.New("signature does not match")
 	}
@@ -320,6 +323,9 @@ func PublicKeyFromJwk(jwk *JWK) (*ed25519.PublicKey, error) {
 	xBytes, err := base64.RawURLEncoding.DecodeString(jwk.X)
 	if err != nil {
 		return nil, fmt.Errorf("invalid OKP X public key: %w", err)
+	}
+	if len(xBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid OKP X public key length: expected %d, got %d", ed25519.PublicKeySize, len(xBytes))
 	}
 	ed25519PublicKey := ed25519.PublicKey(xBytes)
 	return &ed25519PublicKey, nil
