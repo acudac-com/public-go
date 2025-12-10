@@ -52,8 +52,8 @@ func (c *Client) Refresh(refreshToken *string, idToken *string) error {
 	if err := restClient.PostForm("", form, tokens); err != nil {
 		return err
 	}
-	refreshToken = &tokens.RefreshToken
-	idToken = &tokens.IDToken
+	*refreshToken = tokens.RefreshToken
+	*idToken = tokens.IDToken
 	return nil
 }
 
@@ -141,7 +141,7 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 
 	// extract identity from body
 	identity := &Identity{}
-	if err := unmarshalB64(body, body); err != nil {
+	if err := unmarshalB64(body, identity); err != nil {
 		return nil, fmt.Errorf("parsing header: %w", err)
 	}
 
@@ -167,6 +167,9 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 
 	// try to refresh id token if expired
 	if time.Unix(identity.Exp, 0).Before(now) {
+		if refreshToken == nil || issuer.TokensURL == "" {
+			return nil, fmt.Errorf("id token expired but no refresh token provided")
+		}
 		if err := client.Refresh(refreshToken, idToken); err != nil {
 			return nil, fmt.Errorf("refreshing tokens: %v", err)
 		}
@@ -269,15 +272,15 @@ func (i *Issuer) publicKeyFromCache(kid string) (*ed25519.PublicKey, error) {
 }
 
 type JWKS struct {
-	Keys []*JWK
+	Keys []*JWK `json:"keys"`
 }
 type JWK struct {
-	kty string // e.g. OKP
-	crv string // e.g. Ed25519
-	alg string // e.g. EdDSA
-	use string // e.g. sig
-	kid string // e.g. 194md4sb
-	x   string // e.g. asdf98qh4rpoqierqp98asc9as-asdfhsdfahsd98
+	Kty string `json:"kty"` // e.g. OKP
+	Crv string `json:"crv"` // e.g. Ed25519
+	Alg string `json:"alg"` // e.g. EdDSA
+	Use string `json:"use"` // e.g. sig
+	Kid string `json:"kid"` // e.g. 194md4sb
+	X   string `json:"x"`   // e.g. asdf98qh4rpoqierqp98asc9as-asdfhsdfahsd98
 }
 
 // Jwks fetches the issuer's JWKS from its JWKS url.
@@ -298,27 +301,24 @@ func PublicKeysFromJwks(jwks *JWKS) (map[string]*ed25519.PublicKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		publicKeysMap[jwk.kid] = publicKey
+		publicKeysMap[jwk.Kid] = publicKey
 	}
 	return publicKeysMap, nil
 }
 
 // PublicKeyFromJwk converts the given JWK to an ed25519 public key
 func PublicKeyFromJwk(jwk *JWK) (*ed25519.PublicKey, error) {
-	// 	// validate jwk
-	// case "OKP": // Octet Key Pair, typically used for EdDSA (e.g., Ed25519)
-	//        if jwk.CRV != "Ed25519" {
-	//            return nil, fmt.Errorf("unsupported OKP curve: %s", jwk.CRV)
-	//        }
-	//
-	//        xBytes, err := decodeBase64URL(jwk.X)
-	//        if err != nil { return nil, fmt.Errorf("invalid OKP X public key: %w", err) }
-	//
-	//        // Ed25519 public key is simply the raw bytes
-	//        return ed25519.PublicKey(xBytes), nil
-	//
-	// default:
-	// 	return nil, fmt.Errorf("unsupported key type: %s", jwk.KTY)
-	// }
-	return nil, nil
+	if jwk.Kty != "OKP" {
+		return nil, fmt.Errorf("unsupported key type: %s", jwk.Kty)
+	}
+	if jwk.Crv != "Ed25519" {
+		return nil, fmt.Errorf("unsupported OKP curve: %s", jwk.Crv)
+	}
+
+	xBytes, err := base64.RawURLEncoding.DecodeString(jwk.X)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OKP X public key: %w", err)
+	}
+	ed25519PublicKey := ed25519.PublicKey(xBytes)
+	return &ed25519PublicKey, nil
 }
