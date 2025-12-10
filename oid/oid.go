@@ -173,6 +173,7 @@ func Authenticate(now time.Time, idToken *string, refreshToken *string) (*Identi
 		if err := client.Refresh(refreshToken, idToken); err != nil {
 			return nil, fmt.Errorf("refreshing tokens: %v", err)
 		}
+		identity.refreshed = true
 	}
 
 	// validate the signature
@@ -261,6 +262,7 @@ func (i *Issuer) PublicKey(now time.Time, kid string) (*ed25519.PublicKey, error
 
 	// save to cache and return requested public key from cache
 	i.pubicKeys = publicKeys
+	i.publicKeysLastFetched = now
 	return i.publicKeyFromCache(kid)
 }
 

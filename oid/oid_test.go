@@ -19,7 +19,13 @@ func init() {
 
 func Test_Authenticate(t *testing.T) {
 	idToken := os.Getenv("ACUDAC_IDENTITY_ID_TOKEN")
-	identity, err := oid.Authenticate(time.Now(), &idToken, nil)
+	refreshToken := os.Getenv("ACUDAC_IDENTITY_REFRESH_TOKEN")
+	identity, err := oid.Authenticate(time.Now(), &idToken, &refreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%+v", identity)
+	identity, err = oid.Authenticate(time.Now(), &idToken, &refreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
