@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // Client is a simple HTTP client for REST APIs.
@@ -82,6 +84,10 @@ func (c *Client) Post(path string, body any, response any) *Error {
 	return c.DoWithBody("POST", path, body, response)
 }
 
+func (c *Client) PostForm(path string, body url.Values, response any) *Error {
+	return c.DoWithForm("POST", path, body, response)
+}
+
 // Put makes a PUT request to the given path with the JSON encoding of the given body.
 // It also unmarshals the JSON response into the given response object.
 // Automatically sets the Content-Type header to application/json.
@@ -140,11 +146,49 @@ func (c *Client) Do(req *http.Request, response any) *Error {
 		resp.Body.Close()
 		return newError(resp.StatusCode, string(respBytes))
 	}
+	contentType := "application/json"
+	if contentTypeValues := resp.Header.Values("Content-Type"); len(contentTypeValues) > 0 {
+		contentType = contentTypeValues[0]
+	}
 
 	// parse response
-	err = json.Unmarshal(respBytes, response)
-	if err != nil {
-		return newError(0, "unmarshalling response: %v", err)
+	if strings.Contains(contentType, "json") {
+		err = json.Unmarshal(respBytes, response)
+		if err != nil {
+			return newError(0, "unmarshalling %s: %v", string(respBytes), err)
+		}
+	} else {
+		// url encoded
+		urlValues, err := url.ParseQuery(string(respBytes))
+		if err != nil {
+			return newError(0, "parsing url encoded response: %v", err)
+		}
+		valuesMap := make(map[string]string)
+		for key, values := range urlValues {
+			valuesMap[key] = values[0]
+		}
+
+		// marshal the response
+		jsonData, err := json.Marshal(valuesMap)
+		if err != nil {
+			return newError(0, "marshalling response: %v", err)
+		}
+		err = json.Unmarshal(jsonData, response)
+		if err != nil {
+			return newError(0, "unmarshalling response: %v", err)
+		}
 	}
 	return nil
+}
+
+func (c *Client) DoWithForm(method, path string, body url.Values, response any) *Error {
+	// create http request
+	httpReq, err := http.NewRequest(method, c.baseURI+path, strings.NewReader(body.Encode()))
+	if err != nil {
+		return newError(0, "creating http request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// make the request and unmarshal the response
+	return c.Do(httpReq, response)
 }
