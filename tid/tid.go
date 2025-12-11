@@ -10,53 +10,76 @@ import (
 
 // UnixSparse returns a random unix time based id. Includes jitter to prevent db hotspots
 // and handle bursts of new ids being generated.
-func UnixSparse(now time.Time) string {
-	return rev(base36(jitter(timeWithYearJumps(now).Unix())))
+// Leave randomNr nil for default jitter or keep in range [-1e6, 1e6]
+func UnixSparse(now time.Time, randomNr *int) *string {
+	nowPtr := jumpYears(&now)
+	nowInt := nowPtr.Unix()
+	return rev(base36(jitter(&nowInt, randomNr)))
 }
 
 // MilliSparse returns a random unix millisecond time based id. Includes jitter to prevent
 // db hotspots and handle bursts of new ids being generated.
-func MilliSparse(now time.Time) string {
-	return rev(base36(jitter(timeWithYearJumps(now).UnixMilli())))
+// Leave randomNr nil for default jitter or keep in range [-1e6, 1e6]
+func MilliSparse(now time.Time, randomNr *int) *string {
+	nowPtr := jumpYears(&now)
+	nowInt := nowPtr.UnixMilli()
+	return rev(base36(jitter(&nowInt, randomNr)))
 }
 
 // MicroSparse returns a random unix microsecond time based id. Includes jitter to prevent
 // db hotspots and handle bursts of new ids being generated.
-func MicroSparse(now time.Time) string {
-	return rev(base36(jitter(timeWithYearJumps(now).UnixMicro())))
+// Leave randomNr nil for default jitter or keep in range [-1e6, 1e6]
+func MicroSparse(now time.Time, randomNr *int) *string {
+	nowPtr := jumpYears(&now)
+	nowInt := nowPtr.UnixMicro()
+	return rev(base36(jitter(&nowInt, randomNr)))
 }
 
-// NanoSparse returns a random unix microsecond time based id. Includes jitter to prevent
+// NanoSparse returns a random unix nanosecond time based id. Includes jitter to prevent
 // db hotspots and handle bursts of new ids being generated.
-func NanoSparse(now time.Time) string {
-	return rev(base36(jitter(timeWithYearJumps(now).UnixNano())))
+// Leave randomNr nil for default jitter or keep in range [-1e6, 1e6]
+func NanoSparse(now time.Time, randomNr *int) *string {
+	nowPtr := jumpYears(&now)
+	nowInt := nowPtr.UnixNano()
+	return rev(base36(jitter(&nowInt, randomNr)))
 }
 
 // Uses the seconds of the current time to apply a year delta to the returned
 // time. This helps with handling bursts of id generations without any
 // conflicts.
-func timeWithYearJumps(now time.Time) time.Time {
+func jumpYears(now *time.Time) *time.Time {
 	dur := time.Duration((-30+now.Second())*1e9) * 3600 * 24 * 365
-	return now.Add(dur)
+	*now = (*now).Add(dur)
+	return now
 }
 
-func jitter(value int64) int64 {
-	dif := -1e6 + rand.Intn(2e6)
-	value = value + int64(dif)
+// jitter adds/subtracts a random number to the value
+func jitter(value *int64, randomNr *int) *int64 {
+	jitterVal := int(-1e6)
+	if randomNr == nil {
+		jitterVal += rand.Intn(2e6)
+	} else {
+		jitterVal = *randomNr
+	}
+	*value = *value + int64(jitterVal)
 	return value
 }
 
-func base36(value int64) string {
-	return strconv.FormatInt(value, 36)
+// base36 converts an int64 to a base36 string
+// e.g. base36(123456789) = "1t4g5v"
+func base36(value *int64) *string {
+	b36 := strconv.FormatInt(*value, 36)
+	return &b36
 }
 
 // Reverses the string to prevent hotspotting
-func rev(s string) string {
-	runes := []rune(s)
+func rev(s *string) *string {
+	runes := []rune(*s)
 	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
 		runes[i], runes[j] = runes[j], runes[i]
 	}
-	return string(runes)
+	*s = string(runes)
+	return s
 }
 
 const (
@@ -67,21 +90,24 @@ const (
 
 // UnixLatestFirst returns a unix time based id that ensures later values are lexacographically
 // smaller to appear first when listed from a database.
-func UnixLatestFirst(now time.Time) string {
+func UnixLatestFirst(now time.Time) *string {
 	dif := Y5138Unix - now.Unix()
-	return fmt.Sprintf("%08s", base36(dif))
+	id := fmt.Sprintf("%08s", *base36(&dif))
+	return &id
 }
 
 // MilliLatestFirst returns a unix millisecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
-func MilliLatestFirst(now time.Time) string {
+func MilliLatestFirst(now time.Time) *string {
 	dif := Y5138Milli - now.UnixMilli()
-	return fmt.Sprintf("%09s", base36(dif))
+	id := fmt.Sprintf("%09s", *base36(&dif))
+	return &id
 }
 
 // MicroLatestFirst returns a unix microsecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
-func MicroLatestFirst(now time.Time) string {
+func MicroLatestFirst(now time.Time) *string {
 	dif := Y5138Micro - now.UnixMicro()
-	return fmt.Sprintf("%011s", base36(dif))
+	id := fmt.Sprintf("%011s", *base36(&dif))
+	return &id
 }
