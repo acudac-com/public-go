@@ -89,13 +89,13 @@ var clients = map[string]*Client{}
 // Not concurrency proof so use in only one init function.
 func AddClient(client *Client) error {
 	if client.IssuerURL == "" {
-		return fmt.Errorf("issuer.URL cannot be empty")
+		return fmt.Errorf("client.IssuerURL cannot be empty")
 	}
 	if client.JwksURL == "" {
-		return fmt.Errorf("issuer.JwksURL cannot be empty")
+		return fmt.Errorf("client.JwksURL cannot be empty")
 	}
 	if client.ID == "" {
-		return fmt.Errorf("issuer.ID cannot be empty")
+		return fmt.Errorf("client.ID cannot be empty")
 	}
 	// issuer secret is optional
 

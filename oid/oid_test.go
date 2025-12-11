@@ -8,14 +8,16 @@ import (
 	"github.com/acudac-com/public-go/oid"
 )
 
-var client = oid.NewClient("http://localhost:18090", os.Getenv("ACUDAC_IDENTITY_CLIENT_ID"), os.Getenv("ACUDAC_IDENTITY_CLIENT_SECRET"))
+var client = oid.NewClient("http://localhost:18090", os.Getenv("OID_CLIENT_ID"), os.Getenv("OID_CLIENT_SECRET"))
 
 func init() {
-	oid.AddClient(client)
+	if err := oid.AddClient(client); err != nil {
+		panic(err)
+	}
 }
 
 func Test_All(t *testing.T) {
-	code := "LNDJF7X5XG5BIEBNJYHDRWIN3V"
+	code := "424FRFRESBPE65XCUCYG6PTMCJ"
 	redirectURL := "http://localhost:18090/callback"
 	tokens, err := client.ExchangeCode(&code, &redirectURL)
 	if err != nil {
