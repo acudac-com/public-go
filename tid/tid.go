@@ -87,24 +87,21 @@ const (
 
 // UnixLatestFirst returns a unix time based id that ensures later values are lexacographically
 // smaller to appear first when listed from a database.
-func UnixLatestFirst(now time.Time) *string {
+func UnixLatestFirst(now time.Time) string {
 	dif := Y5138Unix - now.Unix()
-	id := fmt.Sprintf("%08s", base36(dif))
-	return &id
+	return fmt.Sprintf("%08s", base36(dif))
 }
 
 // MilliLatestFirst returns a unix millisecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
-func MilliLatestFirst(now time.Time) *string {
+func MilliLatestFirst(now time.Time) string {
 	dif := Y5138Milli - now.UnixMilli()
-	id := fmt.Sprintf("%09s", base36(dif))
-	return &id
+	return fmt.Sprintf("%09s", base36(dif))
 }
 
 // MicroLatestFirst returns a unix microsecond time based id that ensures later values are
 // lexacographically smaller to appear first when listed from a database.
-func MicroLatestFirst(now time.Time) *string {
+func MicroLatestFirst(now time.Time) string {
 	dif := Y5138Micro - now.UnixMicro()
-	id := fmt.Sprintf("%011s", base36(dif))
-	return &id
+	return fmt.Sprintf("%011s", base36(dif))
 }
