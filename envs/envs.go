@@ -5,6 +5,7 @@ package envs
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -101,4 +102,30 @@ func OptionalStringList(key string) []string {
 		return nil
 	}
 	return strings.Split(strValue, ",")
+}
+
+// RequiredInt returns the integer value of the given env, or panics if it does not exist.
+func RequiredInt(key string) int {
+	value, found := os.LookupEnv(key)
+	if !found {
+		panic(fmt.Sprintf("No %s int environment variable found", key))
+	}
+	intValue, err := strconv.Atoi(value)
+	if err != nil {
+		panic(fmt.Sprintf("Invalid int environment variable %s=%s", key, value))
+	}
+	return intValue
+}
+
+// OptionalInt returns the integer value of the given env, or defaults to the given fallback if it does not exist.
+func OptionalInt(key string, fallback int) int {
+	value, found := os.LookupEnv(key)
+	if !found {
+		return fallback
+	}
+	intValue, err := strconv.Atoi(value)
+	if err != nil {
+		panic(fmt.Sprintf("Invalid int environment variable %s=%s", key, value))
+	}
+	return intValue
 }
